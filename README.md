@@ -31,7 +31,7 @@
 터미널을 열고 아래 명령어를 입력하여 설치를 진행합니다:
 
 ```bash
-git clone https://github.com/<your-username>/ayaneo-slide-linux-fixes.git
+git clone https://github.com/jshsakura/ayaneo-slide-linux-fixes.git
 cd ayaneo-slide-linux-fixes
 sudo bash install.sh
 ```
@@ -68,7 +68,7 @@ A comprehensive, community-tested optimization suite for the **AYANEO Slide** an
 ### 🚀 Quick Installation
 
 ```bash
-git clone https://github.com/<your-username>/ayaneo-slide-linux-fixes.git
+git clone https://github.com/jshsakura/ayaneo-slide-linux-fixes.git
 cd ayaneo-slide-linux-fixes
 sudo bash install.sh
 sudo systemctl reboot
