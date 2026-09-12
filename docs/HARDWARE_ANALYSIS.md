@@ -55,22 +55,19 @@ This document details the root causes and technical resolutions for known hardwa
 
 ---
 
-## 4. DCN 3.1.4 HUBBUB Lockup & iGPU GFXOFF Wake Droop
+## 4. DCN 3.1.4 HUBBUB Lockup on Multi-Display / Docking
 
 ### Symptoms
-* Kernel warnings upon connecting USB-C docks or external displays:
+* Kernel warnings upon connecting USB-C docks or external 4K displays:
   ```text
   amdgpu 0000:c4:00.0: [drm] REG_WAIT timeout 1us * 100 tries - dcn31_program_compbuf_size line:141
   WARNING: at dcn31_hubbub.c:151 at dcn31_program_compbuf_size [amdgpu]
   ```
-* Sudden hard reset (`[0x08000800] Data Fabric Sync Flood`) triggered immediately when Steam or Vulkan applications launch.
+* Sudden hard reset (`[0x08000800] Data Fabric Sync Flood`) triggered when Steam, Gamescope, or 3D Vulkan applications launch with external displays connected.
 
 ### Root Cause
 1. **DCN 3.1.4 HUBBUB Scatter-Gather Allocation**:
-   When external docks or monitors are plugged in, KWin Wayland triggers display bandwidth optimization (`dcn20_optimize_bandwidth`). The DCN 3.1.4 HUBBUB compression buffer controller attempts to dynamically resize memory segments over Scatter-Gather (SG) RAM buffers and hits a register timeout. This leaves the memory arbiter on the Data Fabric in an unstable state.
-2. **RDNA3 iGPU GFXOFF Deep Sleep Wake**:
-   When idle, the Radeon 780M enters GFXOFF (graphics power down). When Steam launches, initializing the Vulkan hardware acceleration pipeline, the sudden transition from GFXOFF to high performance induces an abrupt SoC rail (VDDCR_SOC) voltage droop, pushing the arbiter over the edge into a fatal Data Fabric Sync Flood.
+   When external docks or 4K monitors (`DP-2`) are plugged in alongside the internal portrait screen (`eDP-1`), KWin Wayland triggers display bandwidth optimization (`dcn20_optimize_bandwidth`). The DCN 3.1.4 HUBBUB compression buffer controller attempts to dynamically resize memory segments over non-contiguous Scatter-Gather (SG) system RAM buffers and hits a register timeout (`REG_WAIT timeout`). This leaves the memory arbiter on the Data Fabric in an unstable deadlock state, causing an emergency Sync Flood reset when heavy graphics contexts (Steam) request VRAM buffers.
 
 ### Solution
-* `amdgpu.sg_display=0`: Disables Scatter-Gather display buffer allocations on the APU, forcing contiguous dedicated VRAM for display buffers and eliminating HUBBUB register timeouts.
-* `amdgpu.gfxoff=0`: Disables RDNA3 iGPU deep sleep power gating, keeping SoC voltage levels stable across 3D application initialization.
+* `amdgpu.sg_display=0`: Disables Scatter-Gather display buffer allocations on the APU, forcing contiguous dedicated VRAM for display buffers and completely eliminating HUBBUB compression buffer register timeouts.

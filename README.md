@@ -31,7 +31,6 @@ A battle-tested, community-verified optimization suite that eliminates all chron
 | **Sleep Battery Drain via Joystick LEDs**<br>*(RGB joystick rings stay on or flash continuously while device is in sleep mode)* | OEM firmware defaults to active blinking during suspend (`[oem] keep off`). | **`udev/99-ayaneo-slide-led-suspend.rules`**<br>Sets `ATTR{suspend_mode}="off"`, automatically cutting power to ring LEDs during sleep. |
 | **Clocksource Watchdog Timeouts**<br>*(Kernel logs `Watchdog remote CPU read timed out` on core frequency changes)* | Variable TSC frequency shifts during APU governor changes. | **`tsc=reliable`**<br>Marks invariant TSC as a reliable clocksource across all 16 APU threads. |
 | **DCN Hubbub Lockup on Dock / External Display**<br>*(Kernel warning `REG_WAIT timeout in dcn31_program_compbuf_size` when plugging in USB-C dock or changing resolution)* | DCN 3.1.4 display compression buffer arbiter locks up on the Data Fabric during Scatter-Gather DMA reallocations. | **`amdgpu.sg_display=0`**<br>Disables non-contiguous Scatter-Gather display buffer allocations on APU, using dedicated VRAM to guarantee DCHUBBUB stability. |
-| **iGPU GFXOFF Voltage Droop Crash on Steam Wake**<br>*(Hard reset / Sync Flood `[0x08000800]` occurring right when Steam, Vulkan, or Gamescope launches)* | RDNA3 iGPU waking up from deep sleep (GFXOFF) causes a transient voltage drop across the shared SoC rail. | **`amdgpu.gfxoff=0`**<br>Disables iGPU deep sleep power gating, keeping SoC voltage levels rock solid during 3D/Steam launch. |
 
 ---
 
