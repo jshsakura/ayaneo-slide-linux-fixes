@@ -1,0 +1,2 @@
+# Turn off joystick RGB LEDs during sleep to save battery
+ACTION=="add|change", KERNEL=="ayaneo:rgb:joystick_rings", SUBSYSTEM=="leds", ATTR{suspend_mode}="off"

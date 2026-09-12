@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# AYANEO Slide Linux Fixes Rollback / Uninstaller
+# ==============================================================================
+set -e
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+echo -e "${CYAN}====================================================${NC}"
+echo -e "${YELLOW}  AYANEO Slide Fixes - Rollback / Uninstall  ${NC}"
+echo -e "${CYAN}====================================================${NC}"
+
+if [ "$EUID" -ne 0 ]; then
+    echo -e "${RED}[ERROR] This script must be run with root privileges.${NC}"
+    echo -e "Please run: sudo bash $0"
+    exit 1
+fi
+
+# Remove udev rules
+echo "Removing custom udev rules..."
+rm -f /etc/udev/rules.d/99-ayaneo-slide-touchscreen.rules
+rm -f /etc/udev/rules.d/99-ayaneo-slide-led-suspend.rules
+udevadm control --reload-rules
+echo "✓ Udev rules removed."
+
+# Restore bootloader if backup exists
+if [ -f /etc/default/limine.orig ]; then
+    echo "Restoring original Limine configuration..."
+    cp -f /etc/default/limine.orig /etc/default/limine
+    limine-update || true
+    echo "✓ Original bootloader configuration restored."
+fi
+
+echo -e "${GREEN}✓ Rollback complete. Please reboot your system.${NC}"
