@@ -30,6 +30,8 @@
 | **터치스크린 90도 좌표 왜곡**<br>*(가로 화면 상태에서 터치 드래그 시 커서가 상하로 움직임)* | 물리 패널이 1080x1920 세로(Portrait) 규격이라 Wayland/libinput 상에서 90도 시계방향 회전 보정 매트릭스가 필요함. | **`udev/99-ayaneo-slide-touchscreen.rules`**<br>터치 입력 시 `LIBINPUT_CALIBRATION_MATRIX="0 1 0 -1 0 1"` 자동 매핑. |
 | **절전 중 조이스틱 RGB LED 배터리 방전**<br>*(기기가 절전 상태인데도 조이스틱 테두리 링 LED가 계속 깜빡이며 배터리를 소모함)* | 순정 펌웨어 기본값이 절전 중 점멸(`[oem] keep off`)로 되어 있음. | **`udev/99-ayaneo-slide-led-suspend.rules`**<br>절전 모드 진입 시 LED 전원을 완전히 끄는 `ATTR{suspend_mode}="off"` 규칙 적용. |
 | **클럭소스 워치독 원격 CPU 타임아웃**<br>*(커널 로그에 `Watchdog remote CPU read timed out` 경고 발생)* | 전력 상태 전환 시 TSC 클럭 타이머 드리프트 발생. | **`tsc=reliable`**<br>16스레드 전체에서 invariant TSC를 신뢰할 수 있는 클럭소스로 고정. |
+| **도킹 허브 / 외장 모니터 연결 시 DCN 락업**<br>*(USB-C 도크 연결 시 커널에 `REG_WAIT timeout in dcn31_program_compbuf_size` 경고 발생)* | DCN 3.1.4 디스플레이 압축 버퍼가 대역폭 재할당 시 시스템 메모리 버스(Data Fabric)와 충돌하여 응답 타임아웃 발생. | **`amdgpu.sg_display=0`**<br>APU의 비연속적 Scatter-Gather 메모리 할당을 끄고 연속 VRAM을 강제하여 DCHUBBUB 동기화 락업 방지. |
+| **스팀 실행 시 GPU 웨이크업 전압 강하 재부팅**<br>*(스팀 켜거나 3D 게임/Vulkan 구동 시 `[0x08000800]` Sync Flood 하드 리셋)* | 라데온 780M iGPU가 유휴 딥슬립(GFXOFF)에서 고성능으로 깨어나는 순간 SoC 전압 레일에 순간 급락(Voltage Droop) 발생. | **`amdgpu.gfxoff=0`**<br>iGPU의 딥슬립 파워 게이팅을 꺼서 3D 및 스팀 실행 시에도 SoC 전압을 완벽하게 안정화. |
 
 ---
 

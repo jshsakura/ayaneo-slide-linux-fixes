@@ -45,6 +45,8 @@ REQUIRED_PARAMS=(
     "idle=nomwait"
     "nvme_core.default_ps_max_latency_us=0"
     "tsc=reliable"
+    "amdgpu.sg_display=0"
+    "amdgpu.gfxoff=0"
 )
 
 if [ -f "$LIMINE_DEFAULT" ]; then

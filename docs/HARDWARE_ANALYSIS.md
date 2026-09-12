@@ -52,3 +52,25 @@ This document details the root causes and technical resolutions for known hardwa
 * Physical Controller: ZhiXu Controller (`045e:028e`) on internal USB bus (`1-3`).
 * InputPlumber intercepts the raw controller and sets mode `0000` (`c---------`) via udev rules to **hide** the raw device from games, preventing double-input bugs.
 * InputPlumber creates a virtual Steam Deck controller (`deck-uhid`, `28de:12f0`), which Steam picks up via `hidraw` and maps cleanly to `configset_controller_steamos_handheld`.
+
+---
+
+## 4. DCN 3.1.4 HUBBUB Lockup & iGPU GFXOFF Wake Droop
+
+### Symptoms
+* Kernel warnings upon connecting USB-C docks or external displays:
+  ```text
+  amdgpu 0000:c4:00.0: [drm] REG_WAIT timeout 1us * 100 tries - dcn31_program_compbuf_size line:141
+  WARNING: at dcn31_hubbub.c:151 at dcn31_program_compbuf_size [amdgpu]
+  ```
+* Sudden hard reset (`[0x08000800] Data Fabric Sync Flood`) triggered immediately when Steam or Vulkan applications launch.
+
+### Root Cause
+1. **DCN 3.1.4 HUBBUB Scatter-Gather Allocation**:
+   When external docks or monitors are plugged in, KWin Wayland triggers display bandwidth optimization (`dcn20_optimize_bandwidth`). The DCN 3.1.4 HUBBUB compression buffer controller attempts to dynamically resize memory segments over Scatter-Gather (SG) RAM buffers and hits a register timeout. This leaves the memory arbiter on the Data Fabric in an unstable state.
+2. **RDNA3 iGPU GFXOFF Deep Sleep Wake**:
+   When idle, the Radeon 780M enters GFXOFF (graphics power down). When Steam launches, initializing the Vulkan hardware acceleration pipeline, the sudden transition from GFXOFF to high performance induces an abrupt SoC rail (VDDCR_SOC) voltage droop, pushing the arbiter over the edge into a fatal Data Fabric Sync Flood.
+
+### Solution
+* `amdgpu.sg_display=0`: Disables Scatter-Gather display buffer allocations on the APU, forcing contiguous dedicated VRAM for display buffers and eliminating HUBBUB register timeouts.
+* `amdgpu.gfxoff=0`: Disables RDNA3 iGPU deep sleep power gating, keeping SoC voltage levels stable across 3D application initialization.
