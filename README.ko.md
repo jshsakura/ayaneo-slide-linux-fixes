@@ -33,14 +33,12 @@
 
 ---
 
-## 🚀 빠른 설치 방법
+## 🚀 빠른 설치 방법 (원클릭 한 줄 명령어)
 
-데스크톱 모드의 터미널(Konsole)을 열고 아래 명령어를 입력하여 설치합니다:
+데스크톱 모드의 터미널(Konsole)을 열고 아래 **한 줄 명령어**만 복사해서 붙여넣으시면 즉시 설치됩니다:
 
 ```bash
-git clone https://github.com/jshsakura/ayaneo-slide-linux-fixes.git
-cd ayaneo-slide-linux-fixes
-sudo bash install.sh
+curl -sSL https://raw.githubusercontent.com/jshsakura/ayaneo-slide-linux-fixes/main/install.sh | sudo bash
 ```
 
 설치가 완료되면 기기를 재부팅하여 커널에 변경 사항을 활성화합니다:
@@ -48,6 +46,17 @@ sudo bash install.sh
 ```bash
 sudo systemctl reboot
 ```
+
+<details>
+<summary><b>대체 방법: Git 수동 클론 (Manual Git Clone)</b></summary>
+
+```bash
+git clone https://github.com/jshsakura/ayaneo-slide-linux-fixes.git
+cd ayaneo-slide-linux-fixes
+sudo bash install.sh
+sudo systemctl reboot
+```
+</details>
 
 ### `install.sh` 스크립트 동작 과정
 1. **안전 백업**: `/etc/default/limine`을 `/etc/default/limine.orig`로 자동 백업합니다.

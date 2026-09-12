@@ -4,8 +4,6 @@
 # ==============================================================================
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
 # Color codes
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -21,7 +19,7 @@ echo -e "${CYAN}================================================================
 
 if [ "$EUID" -ne 0 ]; then
     echo -e "${RED}[ERROR] This script must be run with root privileges.${NC}"
-    echo -e "Please run: ${YELLOW}sudo bash $0${NC}"
+    echo -e "Please run: ${YELLOW}curl -sSL https://raw.githubusercontent.com/jshsakura/ayaneo-slide-linux-fixes/main/install.sh | sudo bash${NC}"
     exit 1
 fi
 
@@ -73,14 +71,22 @@ else
     echo -e "    ${BOLD}${REQUIRED_PARAMS[*]}${NC}"
 fi
 
-# 3. Install udev rules
+# 3. Install udev rules (Self-contained heredocs so curl | sudo bash works anywhere)
 echo -e "\n${BLUE}[3/5] Installing Udev Rules...${NC}"
-cp -f "$SCRIPT_DIR/udev/99-ayaneo-slide-touchscreen.rules" /etc/udev/rules.d/
-cp -f "$SCRIPT_DIR/udev/99-ayaneo-slide-led-suspend.rules" /etc/udev/rules.d/
+cat << 'EOF' > /etc/udev/rules.d/99-ayaneo-slide-touchscreen.rules
+# AYANEO Slide Goodix Capacitive TouchScreen Calibration for Landscape
+ACTION=="add|change", KERNEL=="event*", ATTRS{name}=="Goodix Capacitive TouchScreen", ENV{LIBINPUT_CALIBRATION_MATRIX}="0 1 0 -1 0 1"
+EOF
+
+cat << 'EOF' > /etc/udev/rules.d/99-ayaneo-slide-led-suspend.rules
+# Turn off joystick RGB LEDs during sleep to save battery
+ACTION=="add|change", KERNEL=="ayaneo:rgb:joystick_rings", SUBSYSTEM=="leds", ATTR{suspend_mode}="off"
+EOF
+
 udevadm control --reload-rules
 udevadm trigger
-echo -e "${GREEN}✓ Touchscreen calibration rule installed (99-ayaneo-slide-touchscreen.rules).${NC}"
-echo -e "${GREEN}✓ LED sleep auto-off rule installed (99-ayaneo-slide-led-suspend.rules).${NC}"
+echo -e "${GREEN}✓ Touchscreen calibration rule installed (/etc/udev/rules.d/99-ayaneo-slide-touchscreen.rules).${NC}"
+echo -e "${GREEN}✓ LED sleep auto-off rule installed (/etc/udev/rules.d/99-ayaneo-slide-led-suspend.rules).${NC}"
 
 # 4. Enable Controller & Platform Services
 echo -e "\n${BLUE}[4/5] Checking Controller & Platform Drivers...${NC}"

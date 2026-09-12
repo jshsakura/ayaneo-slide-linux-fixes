@@ -33,14 +33,12 @@ A battle-tested, community-verified optimization suite that eliminates all chron
 
 ---
 
-## 🚀 Quick Installation
+## 🚀 Quick Installation (One-Liner)
 
-Run the following command in a terminal (e.g., Konsole in Desktop Mode):
+Open a terminal (e.g., Konsole in Desktop Mode) and run this single command:
 
 ```bash
-git clone https://github.com/jshsakura/ayaneo-slide-linux-fixes.git
-cd ayaneo-slide-linux-fixes
-sudo bash install.sh
+curl -sSL https://raw.githubusercontent.com/jshsakura/ayaneo-slide-linux-fixes/main/install.sh | sudo bash
 ```
 
 Once the installation completes, reboot your device to activate all kernel parameters:
@@ -48,6 +46,17 @@ Once the installation completes, reboot your device to activate all kernel param
 ```bash
 sudo systemctl reboot
 ```
+
+<details>
+<summary><b>Alternative: Manual Git Clone</b></summary>
+
+```bash
+git clone https://github.com/jshsakura/ayaneo-slide-linux-fixes.git
+cd ayaneo-slide-linux-fixes
+sudo bash install.sh
+sudo systemctl reboot
+```
+</details>
 
 ### What `install.sh` Does:
 1. **Safety Backup**: Backs up `/etc/default/limine` to `/etc/default/limine.orig`.
