@@ -79,6 +79,21 @@ sudo systemctl reboot
 
 ---
 
+## 🇰🇷 한국어 입력기(fcitx5) 설정 안내 (스팀덱 & 슬라이드 겸용)
+
+아야네오 슬라이드의 물리 슬라이딩 키보드나 외장 키보드에서 **한/영 전환(오른쪽 Alt) 및 데스크톱 모드 한글 입력**이 필요하신 경우, 작성자의 스팀덱 & UMPC 전용 입력기 프로젝트인 **[`jshsakura/steamdeck`](https://github.com/jshsakura/steamdeck)**를 사용하여 아래 한 줄 명령어로 즉시 설정하실 수 있습니다:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/jshsakura/steamdeck/main/install.sh | bash
+```
+
+* **게이밍 안전**: 게임 중 달리기+점프(`Shift + Space`) 시 입력기가 켜지는 충돌을 원천 차단 (`Shift+Space` 배제).
+* **오른쪽 Alt 한영키 매핑**: 스페이스바 오른쪽 Alt를 누르면 윈도우처럼 즉시 한/영 전환 (`korean:ralt_rctrl`).
+* **띄어쓰기 앞쏠림 버그 해결**: fcitx5의 단어 확정 버그(`WordCommit=False`) 자동 패치.
+* **Wayland & 게이밍 환경 연동**: KDE Plasma Wayland 가상 키보드 및 Proton 게임 환경 변수 자동 주입.
+
+---
+
 ## ⚙️ 권장 바이오스(BIOS) 설정
 
 기기 성능과 안정성을 극대화하기 위해 다음 바이오스 설정을 권장합니다.  

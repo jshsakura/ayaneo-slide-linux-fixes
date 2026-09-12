@@ -137,6 +137,12 @@ cat /sys/class/leds/ayaneo:rgb:joystick_rings/suspend_mode
 
 ---
 
+## 🔗 Related Projects
+
+* **[Steam Deck & Handheld Korean IME (fcitx5)](https://github.com/jshsakura/steamdeck)** — Battle-tested, zero-click installer for Korean input on Steam Deck, AYANEO Slide, and Linux handhelds (features Right-Alt Hangul mapping and gaming-safe shortcuts).
+
+---
+
 ## 🤝 Acknowledgements & References
 
 * [ChimeraOS Issue #892](https://github.com/ChimeraOS/chimeraos/issues/892) — For uncovering the `acpi=strict` breakthrough for AYANEO Slide / Antec Core HS.
