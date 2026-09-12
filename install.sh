@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# AYANEO Slide (and Antec Core HS) Linux / CachyOS Optimization Suite
+# AYANEO Slide (and Antec Core HS) Linux / CachyOS Community Fixes
 # ==============================================================================
 set -e
 

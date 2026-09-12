@@ -7,7 +7,7 @@
 
 > [English (README.md)](README.md) | **[🇰🇷 한국어]**
 
-**AYANEO Slide**(및 동일 기종인 **Antec Core HS**, AMD Ryzen 7 7840U / 8840U APU)를 리눅스(CachyOS, Bazzite, ChimeraOS, Arch Linux 등)에서 구동할 때 발생하는 **절전 모드 프리징, 영문 모를 강제 재부팅, SSD 절전 멈춤, 터치 좌표 오류** 등의 고질병들을 완벽하게 해결하는 원클릭 최적화 스위트입니다.
+**AYANEO Slide**(및 동일 기종인 **Antec Core HS**, AMD Ryzen 7 7840U / 8840U APU)를 리눅스(CachyOS, Bazzite, ChimeraOS, Arch Linux 등)에서 구동할 때 발생하는 **절전 모드 프리징, 영문 모를 강제 재부팅, SSD 절전 멈춤, 터치 좌표 오류** 등의 고질병들을 완벽하게 해결하는 원클릭 최적화 패키지입니다.
 
 ---
 

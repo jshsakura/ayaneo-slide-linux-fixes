@@ -1,4 +1,4 @@
-# AYANEO Slide & Antec Core HS - Linux Optimization Suite
+# AYANEO Slide & Antec Core HS - Linux Optimizations & Community Fixes
 
 [![Platform](https://img.shields.io/badge/Platform-CachyOS%20%7C%20Arch%20%7C%20Bazzite%20%7C%20SteamOS-1793D1?logo=arch-linux&logoColor=white)](https://cachyos.org)
 [![Hardware](https://img.shields.io/badge/Hardware-AYANEO%20Slide%20%7C%20Antec%20Core%20HS-FF6600)]()
@@ -22,7 +22,7 @@ A battle-tested, community-verified optimization suite that eliminates all chron
 
 ## 🛠 Chronic Issues & Applied Resolutions
 
-| Issue / Symptom | Root Cause | Solution Applied by Suite |
+| Issue / Symptom | Root Cause | Solution Applied |
 | :--- | :--- | :--- |
 | **Sleep/Wake Blackout Freeze**<br>*(Device goes to sleep via power button, screen stays black/dim, never wakes up)* | AMI BIOS ACPI DSDT implementation contains non-standard OEM power routines that cause Linux kernel power manager lockup during `s2idle`. | **`acpi=strict`**<br>Enforces strict ACPI compliance, bypassing buggy OEM routines (*proven fix from ChimeraOS Issue #892*). |
 | **Spontaneous Hard Resets / Sync Flood**<br>*(Sudden instant reboot during idle or menu; reports reset reason `[0x08000800]`)* | Zen 4 C3 deep idle states cause transient voltage droops on the SoC. When waking, the interconnect suffers an uncorrectable parity error, triggering AMD Data Fabric Sync Flood. | **`processor.max_cstate=1`** & **`idle=nomwait`**<br>Restricts CPU idle transitions to stable C1, preventing SoC voltage droop. Disables unstable BPF schedulers (`scx_loader`). |
