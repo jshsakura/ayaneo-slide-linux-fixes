@@ -1,34 +1,41 @@
-# AYANEO Slide (and Antec Core HS) Linux / CachyOS Community Fixes Suite
+# AYANEO Slide & Antec Core HS - Linux Optimization Suite
 
-[![Platform](https://img.shields.io/badge/platform-CachyOS%20%7C%20Arch%20%7C%20Bazzite%20%7C%20ChimeraOS-blue.svg)](https://cachyos.org)
-[![Hardware](https://img.shields.io/badge/device-AYANEO%20Slide%20%7C%20Antec%20Core%20HS-orange.svg)]()
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/Platform-CachyOS%20%7C%20Arch%20%7C%20Bazzite%20%7C%20SteamOS-1793D1?logo=arch-linux&logoColor=white)](https://cachyos.org)
+[![Hardware](https://img.shields.io/badge/Hardware-AYANEO%20Slide%20%7C%20Antec%20Core%20HS-FF6600)]()
+[![APU](https://img.shields.io/badge/APU-AMD%20Ryzen%207%207840U%20%2F%208840U-ED1C24?logo=amd&logoColor=white)]()
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-[**한국어 설명서**](#한국어-안내) | [**English Guide**](#english-guide)
+> **[English]** | [🇰🇷 **한국어 설명서 (README.ko.md)**](README.ko.md)
 
----
-
-## 한국어 안내
-
-**AYANEO Slide** (및 리브랜딩 기종인 **Antec Core HS**, AMD Ryzen 7 7840U / 8840U)를 리눅스(CachyOS, Bazzite, ChimeraOS, Arch Linux)에서 구동할 때 발생하는 모든 고질적인 하드웨어 결함과 절전/전원 문제를 원클릭으로 해결하는 최적화 패키지입니다.
-
-### 🛠 해결되는 문제 목록
-1. **절전 모드(Sleep) 진입 후 화면 멈춤 및 먹통 현상 완전 해결**:
-   * 슬라이드 특유의 AMI 바이오스 ACPI DSDT 버그를 **`acpi=strict`** 커널 파라미터로 무력화하여 절전 진입/복귀 프리징을 완벽하게 차단합니다.
-2. **이유 없는 갑작스러운 재부팅 및 셧다운(Data Fabric Sync Flood `0x08000800`) 방지**:
-   * 배터리 구동 시 유휴 상태에서 발생하는 전압 강하(Voltage Droop)를 **`processor.max_cstate=1`** 및 **`idle=nomwait`**로 방지하고 불안정한 BPF 스케줄러(`scx_loader`)를 비활성화합니다.
-3. **렉사 NM790 NVMe SSD 절전 사망 버그 해결**:
-   * MAP1602 DRAM-less 컨트롤러가 APST 절전 후 깨어나지 못해 커널이 정지하는 문제를 **`nvme_core.default_ps_max_latency_us=0`**으로 해결합니다.
-4. **터치스크린 가로(Landscape) 좌표 자동 보정**:
-   * 세로 패널로 인해 90도 회전되어 터치되던 문제를 udev 보정 매트릭스로 즉시 교정합니다.
-5. **절전 중 조이스틱 RGB LED 배터리 소모 방지**:
-   * 절전 모드 진입 시 조이스틱 테두리 RGB LED가 자동으로 완전히 소등(`suspend_mode=off`)되도록 udev 규칙을 적용합니다.
+A battle-tested, community-verified optimization suite that eliminates all chronic hardware bugs, sleep/wake deadlocks, and spontaneous reboots on the **AYANEO Slide** (and its twin, the **Antec Core HS**), powered by the AMD Ryzen 7 7840U / 8840U Phoenix APU.
 
 ---
 
-### 🚀 설치 방법
+## 🎯 Target Devices & Environment
 
-터미널을 열고 아래 명령어를 입력하여 설치를 진행합니다:
+* **Hardware**: AYANEO Slide, Antec Core HS (AMD Ryzen 7 7840U / 8840U, Radeon 780M iGPU, 16GB / 24GB / 32GB LPDDR5X)
+* **Storage**: Compatible with all NVMe drives, including the OEM **Lexar NM790 (Maxio MAP1602 DRAM-less controller)**
+* **Supported Distros**: CachyOS (Handheld Edition), Arch Linux, Bazzite, ChimeraOS, SteamOS (SteamFork)
+* **Bootloaders**: Limine (default on CachyOS Deckify), GRUB, systemd-boot
+
+---
+
+## 🛠 Chronic Issues & Applied Resolutions
+
+| Issue / Symptom | Root Cause | Solution Applied by Suite |
+| :--- | :--- | :--- |
+| **Sleep/Wake Blackout Freeze**<br>*(Device goes to sleep via power button, screen stays black/dim, never wakes up)* | AMI BIOS ACPI DSDT implementation contains non-standard OEM power routines that cause Linux kernel power manager lockup during `s2idle`. | **`acpi=strict`**<br>Enforces strict ACPI compliance, bypassing buggy OEM routines (*proven fix from ChimeraOS Issue #892*). |
+| **Spontaneous Hard Resets / Sync Flood**<br>*(Sudden instant reboot during idle or menu; reports reset reason `[0x08000800]`)* | Zen 4 C3 deep idle states cause transient voltage droops on the SoC. When waking, the interconnect suffers an uncorrectable parity error, triggering AMD Data Fabric Sync Flood. | **`processor.max_cstate=1`** & **`idle=nomwait`**<br>Restricts CPU idle transitions to stable C1, preventing SoC voltage droop. Disables unstable BPF schedulers (`scx_loader`). |
+| **Lexar NM790 NVMe Sleep Death**<br>*(SSD disappears from PCIe bus after sleep, causing unrecoverable kernel deadlock)* | Maxio MAP1602 controller fails to resume from deep APST PS4 latency power states on Linux. | **`nvme_core.default_ps_max_latency_us=0`**<br>Restricts NVMe autonomous power-state transitions (APST) to non-operational zero latency. |
+| **Touchscreen 90° Inverted Coordinates**<br>*(Swiping horizontally moves cursor vertically in Game Mode / Desktop)* | Native panel is portrait (`1080x1920`); Wayland/libinput requires a 90° clockwise transformation matrix for landscape orientation. | **`udev/99-ayaneo-slide-touchscreen.rules`**<br>Applies `LIBINPUT_CALIBRATION_MATRIX="0 1 0 -1 0 1"`. |
+| **Sleep Battery Drain via Joystick LEDs**<br>*(RGB joystick rings stay on or flash continuously while device is in sleep mode)* | OEM firmware defaults to active blinking during suspend (`[oem] keep off`). | **`udev/99-ayaneo-slide-led-suspend.rules`**<br>Sets `ATTR{suspend_mode}="off"`, automatically cutting power to ring LEDs during sleep. |
+| **Clocksource Watchdog Timeouts**<br>*(Kernel logs `Watchdog remote CPU read timed out` on core frequency changes)* | Variable TSC frequency shifts during APU governor changes. | **`tsc=reliable`**<br>Marks invariant TSC as a reliable clocksource across all 16 APU threads. |
+
+---
+
+## 🚀 Quick Installation
+
+Run the following command in a terminal (e.g., Konsole in Desktop Mode):
 
 ```bash
 git clone https://github.com/jshsakura/ayaneo-slide-linux-fixes.git
@@ -36,45 +43,100 @@ cd ayaneo-slide-linux-fixes
 sudo bash install.sh
 ```
 
-설치 완료 후 기기를 재부팅하시면 모든 패치가 활성화됩니다:
+Once the installation completes, reboot your device to activate all kernel parameters:
+
 ```bash
 sudo systemctl reboot
 ```
 
----
-
-### 📖 권장 바이오스(BIOS) 설정
-더 나은 안정성과 성능을 위해 다음 설정을 권장합니다:
-* **UMA Frame buffer Size**: `6G` 또는 `8G` (VRAM 부족으로 인한 게임 튕김 방지)
-* **fTPM**: `Disabled` (간헐적 마이크로 스터터링 방지)
-* **Core Watchdog Timer**: `Disabled` (오작동 하드웨어 리셋 방지)
-* **IGD - AmdGop Output Priority**: `LCD` (내부 디스플레이 우선)
-
-자세한 내용은 [BIOS_RECOMMENDATIONS.md](docs/BIOS_RECOMMENDATIONS.md) 문서를 참고하세요.
+### What `install.sh` Does:
+1. **Safety Backup**: Backs up `/etc/default/limine` to `/etc/default/limine.orig`.
+2. **Kernel Parameters**: Appends `acpi=strict`, `processor.max_cstate=1`, `idle=nomwait`, `nvme_core.default_ps_max_latency_us=0`, and `tsc=reliable` to your bootloader.
+3. **Scheduler Stabilization**: Permanently disables experimental BPF schedulers (`scx_loader`) in favor of upstream Linux EEVDF.
+4. **Hardware Udev Rules**: Installs touchscreen landscape calibration and joystick LED suspend auto-off rules.
+5. **Bootloader Rebuild**: Automatically executes `limine-update` to regenerate boot configs and initramfs.
 
 ---
 
-## English Guide
+## ↩️ Rollback / Uninstallation
 
-A comprehensive, community-tested optimization suite for the **AYANEO Slide** and **Antec Core HS** handhelds running Linux (CachyOS, Bazzite, ChimeraOS, Arch Linux).
-
-### 🛠 Resolved Hardware Issues
-* **Sleep/Wake Freeze Fix**: Resolves the notorious AMI BIOS ACPI sleep lockup using `acpi=strict`.
-* **Spontaneous Hard Resets Fix**: Eliminates AMD Zen 4 Data Fabric Sync Flood hardware resets (`0x08000800`) using `processor.max_cstate=1` and `idle=nomwait`.
-* **Lexar NM790 / MAP1602 SSD Wake Freeze**: Prevents PCIe bus dropouts with `nvme_core.default_ps_max_latency_us=0`.
-* **Touchscreen Calibration**: Injects 90° landscape transformation matrix.
-* **RGB LED Sleep Auto-Off**: Automatically powers down joystick ring LEDs during suspend.
-
-### 🚀 Quick Installation
+If you ever wish to revert all changes back to clean factory state:
 
 ```bash
-git clone https://github.com/jshsakura/ayaneo-slide-linux-fixes.git
 cd ayaneo-slide-linux-fixes
-sudo bash install.sh
+sudo bash uninstall.sh
 sudo systemctl reboot
 ```
+
+---
+
+## ⚙️ Recommended BIOS Settings
+
+For maximum stability, battery life, and gaming performance, configure the following in BIOS (**Hold Volume (+) or press `Del` repeatedly at boot**):
+
+| Setting | Recommended | Default | Description |
+| :--- | :---: | :---: | :--- |
+| **UMA Frame buffer Size** | **`6G`** or **`8G`** | Auto / 3G | Allocates fixed VRAM to Radeon 780M. Completely prevents Out-Of-Memory (OOM) crashes in modern AAA games (*Slide has 24GB RAM*). |
+| **fTPM** | **`Disabled`** | Enabled | Eliminates intermittent micro-stuttering and frame hitching known across AMD Zen 4 mobile APUs on Linux. |
+| **Core Watchdog Timer** | **`Disabled`** | Enabled | Prevents unintended hardware-level reboots caused by false-positive core watchdog stalls. |
+| **IGD - AmdGop Output Priority** | **`LCD`** | CRT | Sets the internal LCD panel as primary video output, avoiding black-screen bugs on USB-C docks. |
+
+> For in-depth BIOS instructions, see [docs/BIOS_RECOMMENDATIONS.md](docs/BIOS_RECOMMENDATIONS.md).
+
+---
+
+## 🔋 Recommended Handheld TDP Profiles (Decky Loader)
+
+Install **SimpleDeckyTDP** or **PowerTools** via Decky Loader for real-time power capping in Steam Game Mode:
+
+* **On Battery**: Set TDP to **`15W – 18W`**
+  * The 7840U sweet spot for perf-per-watt. Prevents BMS overcurrent voltage cutoffs on the Slide's 46Wh battery while offering 1.5 to 2.5 hours of AAA gameplay.
+* **On AC Power (Docked)**: Set TDP to **`22W – 28W`**
+* **Manual GPU Clock**: Pin between **`1200MHz – 1600MHz`** to stabilize 1% low frame times and eliminate CPU/GPU power throttling.
+
+---
+
+## 🔍 Verification After Installation
+
+To verify that all fixes are active on your running system:
+
+```bash
+# 1. Verify kernel parameters
+cat /proc/cmdline
+# Expected: ... acpi=strict processor.max_cstate=1 idle=nomwait nvme_core.default_ps_max_latency_us=0 tsc=reliable
+
+# 2. Verify C-state limitation (only POLL and C1 should be active)
+ls /sys/devices/system/cpu/cpu0/cpuidle/
+# Expected: state0 (POLL) and state1 (C1). C2/C3 states are disabled.
+
+# 3. Verify NVMe power latency
+cat /sys/module/nvme_core/parameters/default_ps_max_latency_us
+# Expected: 0
+
+# 4. Verify LED suspend mode
+cat /sys/class/leds/ayaneo:rgb:joystick_rings/suspend_mode
+# Expected: [off] oem keep
+```
+
+---
+
+## 📚 Technical Documentation
+
+* [docs/HARDWARE_ANALYSIS.md](docs/HARDWARE_ANALYSIS.md) — Comprehensive technical deep-dive into the Data Fabric Sync Flood (`0x08000800`), ACPI DSDT lockup, and controller hiding mechanism.
+* [docs/BIOS_RECOMMENDATIONS.md](docs/BIOS_RECOMMENDATIONS.md) — Step-by-step BIOS tuning guide.
+* [README.ko.md](README.ko.md) — 한국어 가이드 및 상세 설명서.
+
+---
+
+## 🤝 Acknowledgements & References
+
+* [ChimeraOS Issue #892](https://github.com/ChimeraOS/chimeraos/issues/892) — For uncovering the `acpi=strict` breakthrough for AYANEO Slide / Antec Core HS.
+* [Valve Software SteamOS Issue #2757](https://github.com/ValveSoftware/SteamOS/issues/2757) — Research into AMD Zen 4 Data Fabric Sync Flood hardware resets.
+* [Bazzite Issue #5596 & #5508](https://github.com/ublue-os/bazzite/issues/5596) — Handheld sleep state and input mapping investigations.
+* [ShadowBlip / ayaneo-platform](https://github.com/ShadowBlip/ayaneo-platform) — Linux kernel platform driver for AYANEO devices.
 
 ---
 
 ## 📜 License
-Released under the [MIT License](LICENSE).
+
+Released under the [MIT License](LICENSE). Contributions, bug reports, and PRs are welcome!
