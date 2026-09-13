@@ -30,7 +30,8 @@
 | **터치 입력이 엉뚱한 곳에 찍힘 (이중 회전)**<br>*(터치한 위치가 아닌 회전된 위치에 입력됨)* | 물리 패널이 1080x1920 세로(Portrait) 규격이라 KWin(Plasma Wayland)이 가로 출력 회전(output transform)을 터치 좌표에 자동 적용함. 여기에 udev `LIBINPUT_CALIBRATION_MATRIX` 90도 회전 매트릭스를 얹으면 좌표가 한 번 더 회전하여 반대편에 입력됨. | **캘리브레이션 매트릭스 미적용**<br>회전 보정은 컴포지터가 자체 처리하므로 이전 `99-ayaneo-slide-touchscreen.rules`는 제거됨. |
 | **절전 중 조이스틱 RGB LED 배터리 방전**<br>*(기기가 절전 상태인데도 조이스틱 테두리 링 LED가 계속 깜빡이며 배터리를 소모함)* | 순정 펌웨어 기본값이 절전 중 점멸(`[oem] keep off`)로 되어 있음. | **`udev/99-ayaneo-slide-led-suspend.rules`**<br>절전 모드 진입 시 LED 전원을 완전히 끄는 `ATTR{suspend_mode}="off"` 규칙 적용. |
 | **클럭소스 워치독 원격 CPU 타임아웃**<br>*(커널 로그에 `Watchdog remote CPU read timed out` 경고 발생)* | 전력 상태 전환 시 TSC 클럭 타이머 드리프트 발생. | **`tsc=reliable`**<br>16스레드 전체에서 invariant TSC를 신뢰할 수 있는 클럭소스로 고정. |
-| **도킹 허브 / 외장 모니터 연결 시 DCN 락업**<br>*(USB-C 도크 연결 시 커널에 `REG_WAIT timeout in dcn31_program_compbuf_size` 경고 발생)* | DCN 3.1.4 디스플레이 압축 버퍼가 대역폭 재할당 시 시스템 메모리 버스(Data Fabric)와 충돌하여 응답 타임아웃 발생. | **`amdgpu.sg_display=0`**<br>APU의 비연속적 Scatter-Gather 메모리 할당을 끄고 연속 VRAM을 강제하여 DCHUBBUB 동기화 락업 방지. |
+ | **도킹 허브 / 외장 모니터 연결 시 DCN 락업**<br>*(USB-C 도크 연결 시 커널에 `REG_WAIT timeout in dcn31_program_compbuf_size` 경고 발생)* | DCN 3.1.4 디스플레이 압축 버퍼가 대역폭 재할당 시 시스템 메모리 버스(Data Fabric)와 충돌하여 응답 타임아웃 발생. | **`amdgpu.sg_display=0`**<br>APU의 비연속적 Scatter-Gather 메모리 할당을 끄고 연속 VRAM을 강제하여 DCHUBBUB 동기화 락업 방지. |
+| **eDP 패널 PSR 불안정**<br>*(Steam 실행, Proton prefix 세팅 등 GPU 부하 시 간헐적 데이터 패브릭 sync flood 재부팅 발생)* | DCN 3.1.4의 eDP PSR 전력 상태 전환이 Phoenix APU에서 디스플레이 파이프라인과 Data Fabric을 불안정하게 만듦. | **`amdgpu.dcdebugmask=0x10`**<br>PSR을 비활성화하여 eDP 링크를 활성 상태로 유지, GPU 클럭 전환 시 패브릭 오류 예방. |
 
 ---
 
@@ -61,7 +62,7 @@ sudo systemctl reboot
 
 ### `install.sh` 스크립트 동작 과정
 1. **안전 백업**: `/etc/default/limine`을 `/etc/default/limine.orig`로 자동 백업합니다.
-2. **커널 파라미터 주입**: `acpi=strict`, `processor.max_cstate=1`, `idle=nomwait`, `nvme_core.default_ps_max_latency_us=0`, `tsc=reliable`을 부트로더에 안전하게 추가합니다.
+2. **커널 파라미터 주입**: `acpi=strict`, `processor.max_cstate=1`, `idle=nomwait`, `nvme_core.default_ps_max_latency_us=0`, `tsc=reliable`, `amdgpu.sg_display=0`, `amdgpu.dcdebugmask=0x10`을 부트로더에 안전하게 추가합니다.
 3. **스케줄러 안정화**: 실험적이고 불안정한 BPF CPU 스케줄러(`scx_loader`)를 영구 비활성화하고 정석 EEVDF 스케줄러로 복구합니다.
 4. **하드웨어 udev 룰 등록**: 조이스틱 LED 절전 자동 소등 룰을 시스템에 등록합니다. (터치스크린 가로 보정은 컴포지터가 자체 처리하므로 룰을 별도로 설치하지 않습니다.)
 5. **부트로더 갱신**: `limine-update`를 실행하여 새로운 커널 설정과 initramfs를 빌드합니다.

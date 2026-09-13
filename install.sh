@@ -46,6 +46,7 @@ REQUIRED_PARAMS=(
     "nvme_core.default_ps_max_latency_us=0"
     "tsc=reliable"
     "amdgpu.sg_display=0"
+    "amdgpu.dcdebugmask=0x10"
 )
 
 if [ -f "$LIMINE_DEFAULT" ]; then
@@ -113,6 +114,7 @@ echo -e "${CYAN}================================================================
 echo -e "Applied fixes:"
 echo -e "  1. ${BOLD}Sleep/Wake Freeze Fix${NC}: acpi=strict & nvme_core.default_ps_max_latency_us=0"
 echo -e "  2. ${BOLD}Data Fabric Sync Flood (0x08000800) Fix${NC}: processor.max_cstate=1 & idle=nomwait"
-echo -e "  3. ${BOLD}Joystick LED Auto-Off During Sleep${NC}"
+echo -e "  3. ${BOLD}Display PSR Sync Flood Fix${NC}: amdgpu.dcdebugmask=0x10"
+echo -e "  4. ${BOLD}Joystick LED Auto-Off During Sleep${NC}"
 echo -e "\n${YELLOW}Please reboot your system to apply all new kernel parameters:${NC}"
 echo -e "  ${BOLD}sudo systemctl reboot${NC}\n"

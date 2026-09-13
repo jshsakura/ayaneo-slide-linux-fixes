@@ -30,7 +30,8 @@ A battle-tested, community-verified optimization suite that eliminates all chron
 | **Touchscreen Registers in Wrong Places (Double Rotation)**<br>*(Touches land in rotated/mirrored positions instead of where you tapped)* | The native panel is portrait (`1080x1920`); KWin (Plasma Wayland) already applies the 90-degree output transform to touch coordinates. An additional udev `LIBINPUT_CALIBRATION_MATRIX` rotates them a second time, landing touches off-target. | **No calibration matrix**<br>Compositors handle the rotation natively, so the old `99-ayaneo-slide-touchscreen.rules` was removed. |
 | **Sleep Battery Drain via Joystick LEDs**<br>*(RGB joystick rings stay on or flash continuously while device is in sleep mode)* | OEM firmware defaults to active blinking during suspend (`[oem] keep off`). | **`udev/99-ayaneo-slide-led-suspend.rules`**<br>Sets `ATTR{suspend_mode}="off"`, automatically cutting power to ring LEDs during sleep. |
 | **Clocksource Watchdog Timeouts**<br>*(Kernel logs `Watchdog remote CPU read timed out` on core frequency changes)* | Variable TSC frequency shifts during APU governor changes. | **`tsc=reliable`**<br>Marks invariant TSC as a reliable clocksource across all 16 APU threads. |
-| **DCN Hubbub Lockup on Dock / External Display**<br>*(Kernel warning `REG_WAIT timeout in dcn31_program_compbuf_size` when plugging in USB-C dock or changing resolution)* | DCN 3.1.4 display compression buffer arbiter locks up on the Data Fabric during Scatter-Gather DMA reallocations. | **`amdgpu.sg_display=0`**<br>Disables non-contiguous Scatter-Gather display buffer allocations on APU, using dedicated VRAM to guarantee DCHUBBUB stability. |
+ | **DCN Hubbub Lockup on Dock / External Display**<br>*(Kernel warning `REG_WAIT timeout in dcn31_program_compbuf_size` when plugging in USB-C dock or changing resolution)* | DCN 3.1.4 display compression buffer arbiter locks up on the Data Fabric during Scatter-Gather DMA reallocations. | **`amdgpu.sg_display=0`**<br>Disables non-contiguous Scatter-Gather display buffer allocations on APU, using dedicated VRAM to guarantee DCHUBBUB stability. |
+| **eDP Panel Self Refresh (PSR) Instability**<br>*(Intermittent data fabric sync flood resets under GPU load — e.g. Steam launch or Proton prefix setup)* | DCN 3.1.4 PSR power-state transitions on the eDP panel destabilize the display pipeline and the Data Fabric on Phoenix APUs. | **`amdgpu.dcdebugmask=0x10`**<br>Disables PSR, keeping the eDP link active to avoid fabric-level faults during GPU clock transitions. |
 
 ---
 
@@ -61,7 +62,7 @@ sudo systemctl reboot
 
 ### What `install.sh` Does:
 1. **Safety Backup**: Backs up `/etc/default/limine` to `/etc/default/limine.orig`.
-2. **Kernel Parameters**: Appends `acpi=strict`, `processor.max_cstate=1`, `idle=nomwait`, `nvme_core.default_ps_max_latency_us=0`, and `tsc=reliable` to your bootloader.
+2. **Kernel Parameters**: Appends `acpi=strict`, `processor.max_cstate=1`, `idle=nomwait`, `nvme_core.default_ps_max_latency_us=0`, `tsc=reliable`, `amdgpu.sg_display=0`, and `amdgpu.dcdebugmask=0x10` to your bootloader.
 3. **Scheduler Stabilization**: Permanently disables experimental BPF schedulers (`scx_loader`) in favor of upstream Linux EEVDF.
 4. **Hardware Udev Rules**: Installs the joystick LED suspend auto-off rule. (Touchscreen landscape rotation is handled natively by the compositor, so no calibration rule is installed.)
 5. **Bootloader Rebuild**: Automatically executes `limine-update` to regenerate boot configs and initramfs.
