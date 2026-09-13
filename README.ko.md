@@ -14,7 +14,7 @@
 ## 🎯 적용 대상 기기 및 환경
 
 * **기기**: AYANEO Slide, Antec Core HS (AMD Ryzen 7 7840U / 8840U, Radeon 780M, 16GB / 24GB / 32GB LPDDR5X)
-* **저장장치**: OEM 탑재 렉사 NM790 (Maxio MAP1602 DRAM-less 컨트롤러) 포함 모든 NVMe SSD
+* **저장장치**: OEM 탑재 렉사 NM7A1 (DRAM-less, HMB) 포함 모든 NVMe SSD
 * **지원 운영체제**: CachyOS (핸드헬드 에디션), Arch Linux, Bazzite, ChimeraOS, SteamOS (SteamFork)
 * **부트로더**: Limine (CachyOS 기본), GRUB, systemd-boot
 
@@ -34,7 +34,7 @@
 | **eDP 패널 PSR 불안정**<br>*(Steam 실행, Proton prefix 세팅 등 GPU 부하 시 간헐적 데이터 패브릭 sync flood 재부팅 발생)* | DCN 3.1.4의 eDP PSR 전력 상태 전환이 Phoenix APU에서 디스플레이 파이프라인과 Data Fabric을 불안정하게 만듦. | **`amdgpu.dcdebugmask=0x10`**<br>PSR을 비활성화하여 eDP 링크를 활성 상태로 유지, GPU 클럭 전환 시 패브릭 오류 예방. |
 | **3D / Proton 실행 시 Data Fabric Sync Flood [0x08000800]**<br>*(게임 실행이나 3D 그래픽 초기화 시 즉각적인 하드 셧다운/재부팅)* | 피닉스 APU의 통합 GPU가 그래픽 DMA 버퍼를 급격히 요청할 때 IOMMU 동적 주소 변환 페이지 테이블 워크 지연으로 데이터 패브릭 락업 발생. | **`iommu=pt`**<br>통합 장치에 대해 IOMMU를 Passthrough 모드로 설정하여 주소 변환 병목을 우회하고 메모리 컨트롤러 프리징 방지. |
 | **NVMe 대용량 I/O 및 고부하 시 PCIe 전압 강하**<br>*(스팀 고속 다운로드나 셰이더 빌드 중 기기 멈춤 또는 재부팅)* | PCIe 능동 전원 관리(ASPM)가 고속 읽기/쓰기 중간중간 저전력 모드로 전환을 시도하면서 링크 지연 및 순간 전압 강하를 유발함. | **`pcie_aspm=off`**<br>PCIe ASPM 절전 상태를 꺼서 고부하 환경에서도 PCIe 링크를 풀 스피드로 상시 유지. |
-| **디램리스 Lexar NM790 HMB DMA 패브릭 충돌**<br>*(스팀 300Mbps 고속 다운로드로 30~50GB 연속 쓰기 시 0x08000800 Sync Flood 재부팅)* | Maxio MAP1602 컨트롤러가 시스템 램 32MB를 호스트 메모리 버퍼(HMB)로 쓰며 PCIe DMA를 난사하다가, 고온/고부하 시 패킷 동기화 불일치로 Data Fabric 락업 유발. | **`nvme_core.max_host_mem_size_mb=0`**<br>HMB를 완전히 비활성화하여 SSD가 시스템 램을 침범하지 않고 온다이 SRAM 캐시만 쓰도록 강제. |
+| **디램리스 NVMe HMB 패브릭 충돌**<br>*(스팀 300Mbps 고속 다운로드 중 0x08000800 Sync Flood 재부팅, 드라이브 72°C 도달)* | 디램리스 컨트롤러가 시스템 램 32MB를 호스트 메모리 버퍼(HMB)로 쓰며 PCIe DMA를 지속하는데, 고부하·고온에서 DMA 동기화 불일치로 Data Fabric 락업 유발. | **디스크 쓰기 상한 + 온도 가드**<br>HMB는 **커널 6.9 이상에서 비활성화 불가** (`max_host_mem_size_mb` 파라미터가 업스트림에서 삭제되어 무시됨). 대신 설치 스크립트가 디스크 쓰기 대역폭을 상한 제한하고 발열 시 추가로 조임 (아래 NVMe 온도 가드 참조). 근본 해결은 DRAM 내장 SSD 교체. |
 
 ---
 

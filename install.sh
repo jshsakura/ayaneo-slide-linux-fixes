@@ -55,7 +55,6 @@ REQUIRED_PARAMS=(
     "processor.max_cstate=1"
     "idle=nomwait"
     "nvme_core.default_ps_max_latency_us=0"
-    "nvme_core.max_host_mem_size_mb=0"
     "tsc=reliable"
     "amdgpu.sg_display=0"
     "amdgpu.dcdebugmask=0x10"
@@ -72,6 +71,10 @@ if [ -f "$LIMINE_DEFAULT" ]; then
 
     # Clean up obsolete or invalid parameters
     sed -i -E "s/[[:space:]]*amdgpu\.gfxoff=0//g" "$LIMINE_DEFAULT"
+    # max_host_mem_size_mb was removed upstream in Linux 6.9: kernels >= 6.9
+    # silently ignore it while still allocating the HMB, so strip it to avoid
+    # false confidence that HMB is disabled.
+    sed -i -E "s/[[:space:]]*nvme_core\.max_host_mem_size_mb=0//g" "$LIMINE_DEFAULT"
 
     for p in "${REQUIRED_PARAMS[@]}"; do
         if grep -q "$p" "$LIMINE_DEFAULT"; then

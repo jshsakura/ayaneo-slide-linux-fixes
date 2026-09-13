@@ -14,7 +14,7 @@ A battle-tested, community-verified optimization suite that eliminates all chron
 ## 🎯 Target Devices & Environment
 
 * **Hardware**: AYANEO Slide, Antec Core HS (AMD Ryzen 7 7840U / 8840U, Radeon 780M iGPU, 16GB / 24GB / 32GB LPDDR5X)
-* **Storage**: Compatible with all NVMe drives, including the OEM **Lexar NM790 (Maxio MAP1602 DRAM-less controller)**
+* **Storage**: Compatible with all NVMe drives, including the OEM **Lexar NM7A1 (DRAM-less, Host Memory Buffer)**
 * **Supported Distros**: CachyOS (Handheld Edition), Arch Linux, Bazzite, ChimeraOS, SteamOS (SteamFork)
 * **Bootloaders**: Limine (default on CachyOS Deckify), GRUB, systemd-boot
 
@@ -34,7 +34,7 @@ A battle-tested, community-verified optimization suite that eliminates all chron
 | **eDP Panel Self Refresh (PSR) Instability**<br>*(Intermittent data fabric sync flood resets under GPU load — e.g. Steam launch or Proton prefix setup)* | DCN 3.1.4 PSR power-state transitions on the eDP panel destabilize the display pipeline and the Data Fabric on Phoenix APUs. | **`amdgpu.dcdebugmask=0x10`**<br>Disables PSR, keeping the eDP link active to avoid fabric-level faults during GPU clock transitions. |
 | **3D / Proton Launch Fabric Sync Flood**<br>*(Hard reboot with reset reason `[0x08000800]` when Proton/Vulkan initializes 3D graphics)* | IOMMU dynamic DMA address translation table walks introduce stalls on APU unified memory interconnect under burst graphics memory requests. | **`iommu=pt`**<br>Sets IOMMU to Passthrough mode for integrated APU DMA, bypassing address translation overhead and memory controller stalls. |
 | **PCIe Link Voltage / Latency Droop Under Load**<br>*(Sudden resets or device drops during sustained disk I/O or power transitions)* | PCIe Active State Power Management (ASPM) causes link latency and voltage fluctuations on DRAM-less NVMe controllers and internal bridges. | **`pcie_aspm=off`**<br>Disables PCIe ASPM power saving states, ensuring continuous high-speed signal integrity under load. |
-| **DRAM-less Lexar NM790 HMB DMA Fabric Lockup**<br>*(Hard reboot with `0x08000800` during sustained 300 Mbps Steam downloads after 30~50GB written)* | Maxio MAP1602 DRAM-less controller hammers the 32MB Host Memory Buffer (HMB) via PCIe DMA into system RAM; under sustained load/thermal stress, DMA desync trips the Data Fabric. | **`nvme_core.max_host_mem_size_mb=0`**<br>Completely disables Host Memory Buffer (HMB), forcing controller to use internal SRAM cache and eliminating PCIe DMA memory contention. |
+| **DRAM-less NVMe HMB Fabric Lockup**<br>*(Hard reboot with `0x08000800` during sustained 300 Mbps Steam downloads; drive reaches ~72°C)* | The DRAM-less controller uses a 32MB Host Memory Buffer (HMB) via continuous PCIe DMA into system RAM; under sustained write load and heat, DMA desync trips the Data Fabric. | **Sustained-write ceiling + thermal guard**<br>HMB **cannot be disabled on kernel ≥ 6.9** (`max_host_mem_size_mb` was removed upstream and is silently ignored). The installer instead caps disk write bandwidth and clamps it further when the drive heats up (see NVMe Thermal Guard below). Swapping in a DRAM-equipped SSD removes HMB entirely. |
 
 ---
 
