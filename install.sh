@@ -189,6 +189,15 @@ set_wbps "$CEIL_WBPS" && log "applied ${CEIL_WBPS} B/s write ceiling to $APP_CG 
 
 log "started: device=$CEIL_DISK($DEV_MM) engage=$((ENGAGE_mC/1000))C release=$((RELEASE_mC/1000))C clamp=${CLAMP_WBPS}"
 while sleep 5; do
+    # app.slice does not exist at multi-user.target time (user session not
+    # up yet), so pick up the cgroup once it appears and apply the ceiling.
+    if [ -z "$ENSURED" ]; then
+        [ -n "$APP_CG" ] || APP_CG=$(ls -d /sys/fs/cgroup/user.slice/user-*.slice/user@*.service/app.slice 2>/dev/null | head -1)
+        if [ -n "$APP_CG" ] && set_wbps "$CEIL_WBPS"; then
+            ENSURED=1
+            log "write ceiling applied to $APP_CG (user session up)"
+        fi
+    fi
     t=$(nvme_temp) || continue
     if [ "$t" -ge "$ENGAGE_mC" ] && [ "$STATE" != "hot" ]; then
         set_wbps "$CLAMP_WBPS" && STATE=hot
