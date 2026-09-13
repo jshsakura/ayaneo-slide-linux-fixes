@@ -39,6 +39,40 @@ A battle-tested, community-verified optimization suite that eliminates all chron
 
 ---
 
+## 🎛️ Tuning the NVMe Protection
+
+The default setup is a **25 MB/s persistent write ceiling + thermal guard** (clamps to 8 MB/s at ≥69°C, releases at ≤66°C). Measured on this chassis: sustained 40 MB/s writes drive the drive to ~72°C (crash zone); 25 MB/s stays around 66–68°C.
+
+**Reference: what a limit value actually means**
+
+| You set | Actual speed | Expected NVMe temp | Verdict |
+|---|---|---|---|
+| 1500 KB/s | 1.5 MB/s | ~50°C | Very safe, but a 90 GB game takes ~17 h |
+| 1500 Mbps | 187 MB/s | 72°C+ | No effect — Wi-Fi tops out ~40 MB/s anyway |
+| **15–25 MB/s** | — | **60–68°C** | Safe zone; cannot reach the sync-flood temperature |
+
+**Option A — static cap only (no daemon):** if you prefer one fixed number over the dynamic guard:
+
+```bash
+sudo systemctl disable --now ayaneo-nvme-guard
+sudo systemctl set-property user.slice IOWriteBandwidthMax="/dev/nvme0n1 20M"
+```
+
+**Option B — HCTM (drive-level self-throttle):** NVMe feature 0x10 lets the host tell the drive to slow *itself* at a chosen temperature — the closest thing to a firmware-level DRAM-less solution. Support depends on drive firmware:
+
+```bash
+sudo pacman -S nvme-cli
+sudo nvme get-feature /dev/nvme0 -f 0x10     # prints TMT1/TMT2 if supported
+# To self-throttle at 60°C (333K), hard-stop 75°C (348K):
+sudo nvme set-feature /dev/nvme0 -f 0x10 -v 0x015C014D
+```
+
+HCTM temperatures are Kelvin (°C + 273). The installer probes and reports HCTM support automatically when `nvme-cli` is present.
+
+**Option C — remove the problem class:** swap in a DRAM-equipped SSD; HMB then no longer exists.
+
+---
+
 ## 🚀 Quick Installation (One-Liner)
 
 Open a terminal (e.g., Konsole in Desktop Mode) and run this single command:

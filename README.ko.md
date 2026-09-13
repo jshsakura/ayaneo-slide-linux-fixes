@@ -39,6 +39,40 @@
 
 ---
 
+## 🎛️ NVMe 보호 기능 튜닝
+
+기본 구성은 **25MB/s 상시 쓰기 상한 + 온도 가드** (69°C 이상 시 8MB/s 조임, 66°C 이하 해제)입니다. 이 기체 실측: 40MB/s 지속 쓰기는 드라이브를 72°C(크래시존)까지 올리고, 25MB/s는 66~68°C에 머뭅니다.
+
+**참고: 제한 값이 실제로 의미하는 것**
+
+| 설정값 | 실제 속도 | 예상 NVMe 온도 | 평가 |
+|---|---|---|---|
+| 1500 KB/s | 1.5 MB/s | ~50°C | 매우 안전하지만 90GB 게임에 ~17시간 |
+| 1500 Mbps | 187 MB/s | 72°C+ | 효과 없음 — WiFi가 어차피 ~40MB/s가 최대 |
+| **15~25 MB/s** | — | **60~68°C** | 안전 구간; sync flood 온도 도달 불가 |
+
+**방법 A — 정적 상한만 사용 (데몬 없음):** 동적 가드 대신 고정 값 하나를 선호하면:
+
+```bash
+sudo systemctl disable --now ayaneo-nvme-guard
+sudo systemctl set-property user.slice IOWriteBandwidthMax="/dev/nvme0n1 20M"
+```
+
+**방법 B — HCTM (드라이브 자가 스로틀):** NVMe 기능 0x10은 호스트가 드라이브에게 지정 온도에서 *스스로* 속도를 줄이도록 지시하는 기능 — 펌웨어 레벨 디램리스 해결에 가장 가까운 수단. 지원 여부는 펌웨어에 따라 다름:
+
+```bash
+sudo pacman -S nvme-cli
+sudo nvme get-feature /dev/nvme0 -f 0x10     # 지원 시 TMT1/TMT2 출력
+# 60°C(333K)에서 자가 스로틀, 75°C(348K) 하드스톱으로 설정:
+sudo nvme set-feature /dev/nvme0 -f 0x10 -v 0x015C014D
+```
+
+HCTM 온도는 켈빈(°C + 273)입니다. 설치 스크립트는 `nvme-cli`가 있으면 HCTM 지원 여부를 자동 탐지해 보고합니다.
+
+**방법 C — 문제 클래스 자체 제거:** DRAM 내장 SSD로 교체 — HMB가 존재 자체를 멈춥니다.
+
+---
+
 ## 🚀 빠른 설치 방법 (원클릭 한 줄 명령어)
 
 데스크톱 모드의 터미널(Konsole)을 열고 아래 **한 줄 명령어**만 복사해서 붙여넣으시면 즉시 설치됩니다:
