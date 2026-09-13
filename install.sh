@@ -148,15 +148,22 @@ fi
 echo -e "\n${BLUE}[6/6] Installing NVMe Write Ceiling & Thermal Guard...${NC}"
 ROOT_DISK=$(findmnt -n -o SOURCE / | sed 's/\[.*//; s/p[0-9]\+$//')
 
-systemctl set-property user.slice "IOWriteBandwidthMax=$ROOT_DISK 25M"
-echo -e "${GREEN}✓ Persistent user.slice write ceiling: 25 MB/s on $ROOT_DISK (all apps).${NC}"
+# v3: cap app.slice only (Steam, browsers, user apps). Plasma/KWin/IME live in
+# session.slice and stay uncapped, and reads are never limited (rbps=max).
+# Migrate away the v2 user.slice cap that stalled the whole desktop.
+systemctl set-property --runtime app.slice "IOWriteBandwidthMax=" 2>/dev/null || true
+systemctl set-property user.slice "IOWriteBandwidthMax=" 2>/dev/null || true
+rm -f /etc/systemd/system.control/user.slice.d/50-IOWriteBandwidthMax.conf
+
+systemctl set-property app.slice "IOWriteBandwidthMax=$ROOT_DISK 25M"
+echo -e "${GREEN}✓ Persistent app.slice write ceiling: 25 MB/s on $ROOT_DISK (Plasma/IME uncapped, reads unlimited).${NC}"
 
 cat << 'EOF' > /usr/local/sbin/ayaneo-nvme-guard
 #!/usr/bin/env bash
 # Keeps the DRAM-less NVMe below the Data Fabric sync-flood danger zone
 # (~72C measured) by dynamically clamping user.slice disk write bandwidth.
-ENGAGE_mC=69000
-RELEASE_mC=66000
+ENGAGE_mC=74000
+RELEASE_mC=70000
 CLAMP_RATE=8M
 STATE=ok
 CEIL_DEV=$(findmnt -n -o SOURCE / | sed 's/\[.*//; s/p[0-9]\+$//')
@@ -171,15 +178,22 @@ nvme_temp() {
     return 1
 }
 
+# Sync stale state: clear any runtime clamp a previous guard instance left
+# behind when the drive is already below the engage threshold.
+t0=$(nvme_temp) || t0=0
+if [ "$t0" -lt "$ENGAGE_mC" ]; then
+    systemctl set-property --runtime app.slice "IOWriteBandwidthMax=" 2>/dev/null || true
+fi
+
 log "started: device=$CEIL_DEV engage=$((ENGAGE_mC/1000))C release=$((RELEASE_mC/1000))C clamp=$CLAMP_RATE"
 while sleep 5; do
     t=$(nvme_temp) || continue
     if [ "$t" -ge "$ENGAGE_mC" ] && [ "$STATE" != "hot" ]; then
-        systemctl set-property --runtime user.slice "IOWriteBandwidthMax=$CEIL_DEV $CLAMP_RATE"
+        systemctl set-property --runtime app.slice "IOWriteBandwidthMax=$CEIL_DEV $CLAMP_RATE"
         STATE=hot
         log "NVMe at $((t/1000))C - write bandwidth clamped to $CLAMP_RATE"
     elif [ "$t" -le "$RELEASE_mC" ] && [ "$STATE" != "ok" ]; then
-        systemctl set-property --runtime user.slice "IOWriteBandwidthMax="
+        systemctl set-property --runtime app.slice "IOWriteBandwidthMax="
         STATE=ok
         log "NVMe at $((t/1000))C - runtime clamp removed (persistent 25M ceiling remains)"
     fi
@@ -202,7 +216,7 @@ WantedBy=multi-user.target
 EOF
 systemctl daemon-reload
 systemctl enable --now ayaneo-nvme-guard.service
-echo -e "${GREEN}✓ Thermal guard service active (69C engage / 66C release / 8M clamp).${NC}"
+echo -e "${GREEN}✓ Thermal guard active: clamp 8M at 74C, release at 70C - app.slice only (desktop stays responsive).${NC}"
 
 # Optional drive-level self-throttle: report HCTM (Host Controlled Thermal
 # Management, NVMe feature 0x10) support if nvme-cli is installed. HCTM lets

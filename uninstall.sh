@@ -27,12 +27,15 @@ rm -f /etc/udev/rules.d/99-ayaneo-slide-led-suspend.rules
 udevadm control --reload-rules
 echo "✓ Udev rules removed."
 
-# Remove NVMe thermal guard and write ceiling
+# Remove NVMe thermal guard and write ceiling (v3 app.slice + legacy v2 user.slice)
 systemctl disable --now ayaneo-nvme-guard.service 2>/dev/null || true
 rm -f /etc/systemd/system/ayaneo-nvme-guard.service
 rm -f /usr/local/sbin/ayaneo-nvme-guard
-systemctl set-property --runtime user.slice "IOWriteBandwidthMax=" 2>/dev/null || true
-systemctl set-property user.slice "IOWriteBandwidthMax=" 2>/dev/null || true
+for SLICE in app.slice user.slice; do
+    systemctl set-property --runtime "$SLICE" "IOWriteBandwidthMax=" 2>/dev/null || true
+    systemctl set-property "$SLICE" "IOWriteBandwidthMax=" 2>/dev/null || true
+done
+rm -f /etc/systemd/system.control/app.slice.d/50-IOWriteBandwidthMax.conf
 rm -f /etc/systemd/system.control/user.slice.d/50-IOWriteBandwidthMax.conf
 systemctl daemon-reload
 echo "✓ NVMe thermal guard removed and write bandwidth limits cleared."
