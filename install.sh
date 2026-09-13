@@ -148,25 +148,20 @@ fi
 echo -e "\n${BLUE}[6/6] Installing NVMe Write Ceiling & Thermal Guard...${NC}"
 ROOT_DISK=$(findmnt -n -o SOURCE / | sed 's/\[.*//; s/p[0-9]\+$//')
 
-# v3: cap app.slice only (Steam, browsers, user apps). Plasma/KWin/IME live in
-# session.slice and stay uncapped, and reads are never limited (rbps=max).
-# Migrate away the v2 user.slice cap that stalled the whole desktop.
-systemctl set-property --runtime app.slice "IOWriteBandwidthMax=" 2>/dev/null || true
-systemctl set-property user.slice "IOWriteBandwidthMax=" 2>/dev/null || true
-rm -f /etc/systemd/system.control/user.slice.d/50-IOWriteBandwidthMax.conf
-
-systemctl set-property app.slice "IOWriteBandwidthMax=$ROOT_DISK 25M"
-echo -e "${GREEN}✓ Persistent app.slice write ceiling: 25 MB/s on $ROOT_DISK (Plasma/IME uncapped, reads unlimited).${NC}"
-
 cat << 'EOF' > /usr/local/sbin/ayaneo-nvme-guard
 #!/usr/bin/env bash
 # Keeps the DRAM-less NVMe below the Data Fabric sync-flood danger zone
-# (~72C measured) by dynamically clamping user.slice disk write bandwidth.
+# (~72C measured) by clamping app.slice disk write bandwidth via direct
+# cgroupfs io.max writes. systemd set-property is NOT used: app.slice
+# belongs to the user manager, so root-side set-property binds to nothing.
 ENGAGE_mC=74000
 RELEASE_mC=70000
-CLAMP_RATE=8M
+CLAMP_WBPS=8000000
+CEIL_WBPS=25000000
 STATE=ok
-CEIL_DEV=$(findmnt -n -o SOURCE / | sed 's/\[.*//; s/p[0-9]\+$//')
+CEIL_DISK=$(findmnt -n -o SOURCE / | sed 's/\[.*//; s/p[0-9]\+$//')
+DEV_MM=$(cat "/sys/class/block/$(basename "$CEIL_DISK")/dev")
+APP_CG=$(ls -d /sys/fs/cgroup/user.slice/user-*.slice/user@*.service/app.slice 2>/dev/null | head -1)
 
 log() { logger -t ayaneo-nvme-guard "$1"; }
 nvme_temp() {
@@ -177,25 +172,30 @@ nvme_temp() {
     done
     return 1
 }
+set_wbps() {
+    [ -n "$APP_CG" ] && [ -n "$DEV_MM" ] || return 1
+    echo "$DEV_MM rbps=max wbps=$1 riops=max wiops=max" > "$APP_CG/io.max"
+}
 
-# Sync stale state: clear any runtime clamp a previous guard instance left
-# behind when the drive is already below the engage threshold.
-t0=$(nvme_temp) || t0=0
-if [ "$t0" -lt "$ENGAGE_mC" ]; then
-    systemctl set-property --runtime app.slice "IOWriteBandwidthMax=" 2>/dev/null || true
-fi
+# Clear legacy caps from systemd-manager-based versions (v2/v3) and apply
+# the ceiling directly. Reads are never limited.
+for SLICE in user.slice app.slice; do
+    systemctl set-property --runtime "$SLICE" "IOWriteBandwidthMax=" 2>/dev/null || true
+    systemctl set-property "$SLICE" "IOWriteBandwidthMax=" 2>/dev/null || true
+done
+rm -f /etc/systemd/system.control/user.slice.d/50-IOWriteBandwidthMax.conf
+rm -f /etc/systemd/system.control/app.slice.d/50-IOWriteBandwidthMax.conf
+set_wbps "$CEIL_WBPS" && log "applied ${CEIL_WBPS} B/s write ceiling to $APP_CG (reads unlimited, session.slice untouched)"
 
-log "started: device=$CEIL_DEV engage=$((ENGAGE_mC/1000))C release=$((RELEASE_mC/1000))C clamp=$CLAMP_RATE"
+log "started: device=$CEIL_DISK($DEV_MM) engage=$((ENGAGE_mC/1000))C release=$((RELEASE_mC/1000))C clamp=${CLAMP_WBPS}"
 while sleep 5; do
     t=$(nvme_temp) || continue
     if [ "$t" -ge "$ENGAGE_mC" ] && [ "$STATE" != "hot" ]; then
-        systemctl set-property --runtime app.slice "IOWriteBandwidthMax=$CEIL_DEV $CLAMP_RATE"
-        STATE=hot
-        log "NVMe at $((t/1000))C - write bandwidth clamped to $CLAMP_RATE"
+        set_wbps "$CLAMP_WBPS" && STATE=hot
+        log "NVMe at $((t/1000))C - app.slice write bandwidth clamped to $CLAMP_WBPS"
     elif [ "$t" -le "$RELEASE_mC" ] && [ "$STATE" != "ok" ]; then
-        systemctl set-property --runtime app.slice "IOWriteBandwidthMax="
-        STATE=ok
-        log "NVMe at $((t/1000))C - runtime clamp removed (persistent 25M ceiling remains)"
+        set_wbps "$CEIL_WBPS" && STATE=ok
+        log "NVMe at $((t/1000))C - clamp released, ceiling back to $CEIL_WBPS"
     fi
 done
 EOF
@@ -217,7 +217,7 @@ EOF
 systemctl daemon-reload
 systemctl enable ayaneo-nvme-guard.service 2>/dev/null || true
 systemctl restart ayaneo-nvme-guard.service
-echo -e "${GREEN}✓ Thermal guard active: clamp 8M at 74C, release at 70C - app.slice only (desktop stays responsive).${NC}"
+echo -e "${GREEN}✓ Thermal guard active: 25M ceiling, clamp 8M at 74C, release 70C (app.slice only, desktop exempt).${NC}"
 
 # Optional drive-level self-throttle: report HCTM (Host Controlled Thermal
 # Management, NVMe feature 0x10) support if nvme-cli is installed. HCTM lets

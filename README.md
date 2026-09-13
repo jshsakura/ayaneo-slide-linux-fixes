@@ -35,7 +35,7 @@ A battle-tested, community-verified optimization suite that eliminates all chron
 | **3D / Proton Launch Fabric Sync Flood**<br>*(Hard reboot with reset reason `[0x08000800]` when Proton/Vulkan initializes 3D graphics)* | IOMMU dynamic DMA address translation table walks introduce stalls on APU unified memory interconnect under burst graphics memory requests. | **`iommu=pt`**<br>Sets IOMMU to Passthrough mode for integrated APU DMA, bypassing address translation overhead and memory controller stalls. |
 | **PCIe Link Voltage / Latency Droop Under Load**<br>*(Sudden resets or device drops during sustained disk I/O or power transitions)* | PCIe Active State Power Management (ASPM) causes link latency and voltage fluctuations on DRAM-less NVMe controllers and internal bridges. | **`pcie_aspm=off`**<br>Disables PCIe ASPM power saving states, ensuring continuous high-speed signal integrity under load. |
 | **DRAM-less NVMe HMB Fabric Lockup**<br>*(Hard reboot with `0x08000800` during sustained 300 Mbps Steam downloads; drive reaches ~72°C)* | The DRAM-less controller uses a 32MB Host Memory Buffer (HMB) via continuous PCIe DMA into system RAM; under sustained write load and heat, DMA desync trips the Data Fabric. | **Sustained-write ceiling + thermal guard**<br>HMB **cannot be disabled on kernel ≥ 6.9** (`max_host_mem_size_mb` was removed upstream and is silently ignored). The installer instead caps disk write bandwidth and clamps it further when the drive heats up (see NVMe Thermal Guard below). Swapping in a DRAM-equipped SSD removes HMB entirely. |
-| **NVMe Thermal Guard**<br>*(Backstop: keeps sustained writes away from the crash zone even at unlimited app speeds)* | Measured on this chassis: full-speed Steam downloads (~40 MB/s sustained writes) drive the drive to ~72°C even with a thermal pad, matching the sync-flood crash temperature. | **`ayaneo-nvme-guard.service` + cgroup `io.max` on `app.slice`**<br>Kernel-level 25 MB/s write ceiling for user apps (Steam, browsers); Plasma/KWin/IME live in `session.slice` and are never capped, and reads are always unlimited (`rbps=max`). Guard clamps to 8 MB/s only at ≥74°C and releases at ≤70°C — this drive idles at 66–67°C and runs 72–73°C during post-download SLC folding, so lower thresholds stall the desktop with dirty-page backpressure for no thermal gain. Check status: `journalctl -t ayaneo-nvme-guard -f`. |
+| **NVMe Thermal Guard**<br>*(Backstop: keeps sustained writes away from the crash zone even at unlimited app speeds)* | Measured on this chassis: full-speed Steam downloads (~40 MB/s sustained writes) drive the drive to ~72°C even with a thermal pad, matching the sync-flood crash temperature. | **`ayaneo-nvme-guard.service`**<br>Writes the 25 MB/s ceiling directly to the user session's `app.slice` cgroup `io.max` (Steam, browsers); Plasma/KWin/IME live in `session.slice` and are never capped, and reads are always unlimited. Guard clamps to 8 MB/s only at ≥74°C and releases at ≤70°C — this drive idles at 66–67°C and runs 72–73°C during post-download SLC folding, so lower thresholds stall the desktop with dirty-page backpressure for no thermal gain. Note: `systemctl set-property app.slice` from root binds to nothing (app.slice belongs to the user manager) — that's why the guard writes cgroupfs directly and re-applies the ceiling at every boot. Check status: `journalctl -t ayaneo-nvme-guard -f`. |
 
 ---
 
@@ -51,11 +51,11 @@ The default setup is a **25 MB/s persistent write ceiling + thermal guard** (cla
 | 1500 Mbps | 187 MB/s | 72°C+ | No effect — Wi-Fi tops out ~40 MB/s anyway |
 | **15–25 MB/s** | — | **60–68°C** | Safe zone; cannot reach the sync-flood temperature |
 
-**Option A — static cap only (no daemon):** if you prefer one fixed number over the dynamic guard:
+**Option A — static cap only (no daemon):** if you prefer one fixed number over the dynamic guard (non-persistent; re-apply after reboot, or let the installer's guard handle it):
 
 ```bash
 sudo systemctl disable --now ayaneo-nvme-guard
-sudo systemctl set-property app.slice IOWriteBandwidthMax="/dev/nvme0n1 20M"
+echo "259:0 rbps=max wbps=20971520 riops=max wiops=max" | sudo tee /sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/io.max
 ```
 
 **Option B — HCTM (drive-level self-throttle):** NVMe feature 0x10 lets the host tell the drive to slow *itself* at a chosen temperature — the closest thing to a firmware-level DRAM-less solution. Support depends on drive firmware:

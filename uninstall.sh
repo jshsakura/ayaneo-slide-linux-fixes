@@ -27,10 +27,14 @@ rm -f /etc/udev/rules.d/99-ayaneo-slide-led-suspend.rules
 udevadm control --reload-rules
 echo "✓ Udev rules removed."
 
-# Remove NVMe thermal guard and write ceiling (v3 app.slice + legacy v2 user.slice)
+# Remove NVMe thermal guard and write ceiling
 systemctl disable --now ayaneo-nvme-guard.service 2>/dev/null || true
 rm -f /etc/systemd/system/ayaneo-nvme-guard.service
 rm -f /usr/local/sbin/ayaneo-nvme-guard
+DEV_MM=$(cat "/sys/class/block/$(basename "$(findmnt -n -o SOURCE / | sed 's/\[.*//; s/p[0-9]\+$//')")/dev" 2>/dev/null)
+for CG in /sys/fs/cgroup/user.slice/user-*.slice/user@*.service/app.slice; do
+    [ -n "$DEV_MM" ] && echo "$DEV_MM rbps=max wbps=max riops=max wiops=max" > "$CG/io.max" 2>/dev/null
+done
 for SLICE in app.slice user.slice; do
     systemctl set-property --runtime "$SLICE" "IOWriteBandwidthMax=" 2>/dev/null || true
     systemctl set-property "$SLICE" "IOWriteBandwidthMax=" 2>/dev/null || true
