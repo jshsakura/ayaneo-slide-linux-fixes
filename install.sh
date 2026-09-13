@@ -204,6 +204,20 @@ systemctl daemon-reload
 systemctl enable --now ayaneo-nvme-guard.service
 echo -e "${GREEN}✓ Thermal guard service active (69C engage / 66C release / 8M clamp).${NC}"
 
+# Optional drive-level self-throttle: report HCTM (Host Controlled Thermal
+# Management, NVMe feature 0x10) support if nvme-cli is installed. HCTM lets
+# the host tell the drive to throttle itself at a chosen temperature - the
+# closest thing to a firmware-level DRAM-less thermal solution.
+if command -v nvme >/dev/null 2>&1; then
+    HCTM=$(nvme get-feature "$ROOT_DISK" -f 0x10 2>&1) || true
+    if echo "$HCTM" | grep -q "TMT1"; then
+        echo -e "${GREEN}✓ Drive supports HCTM (host-controlled self-throttle):${NC}"
+        echo "$HCTM" | grep -E "TMT1|TMT2" | sed 's/^/    /'
+    else
+        echo -e "${YELLOW}[!] Drive firmware does not expose HCTM. Kernel-level guard remains the throttle.${NC}"
+    fi
+fi
+
 echo -e "\n${CYAN}==============================================================================${NC}"
 echo -e "${BOLD}${GREEN}  Installation Complete!  ${NC}"
 echo -e "${CYAN}==============================================================================${NC}"
