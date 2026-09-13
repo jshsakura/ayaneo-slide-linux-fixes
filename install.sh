@@ -48,6 +48,9 @@ if ! pgrep -f "bin/hhd" >/dev/null 2>&1 && ! sudo -u "$CURRENT_USER" -- bash -lc
     sudo -u "$CURRENT_USER" -- bash -c 'curl -L https://raw.githubusercontent.com/hhd-dev/hhd/master/install.sh | bash' || true
 fi
 systemctl enable "hhd_local@${CURRENT_USER}" 2>/dev/null || true
+# The HHD overlay UI is a bundled binary that dlopens libfuse.so.2; CachyOS
+# ships fuse3 only, and without fuse2 the overlay thread dies on every boot.
+pacman -S --needed --noconfirm fuse2 2>/dev/null || true
 
 if pgrep -f "bin/hhd" >/dev/null 2>&1; then
     if [ "$(readlink -f /etc/systemd/system/steamos-manager.service 2>/dev/null)" != "/dev/null" ]; then
