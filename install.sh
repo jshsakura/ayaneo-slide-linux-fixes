@@ -144,11 +144,12 @@ echo -e "\n${BLUE}[4/6] Checking Controller & Platform Drivers...${NC}"
 # overlay (its trigger rides on the emulated controller). HHD has official
 # Slide support (gyro, back buttons, QAM), so it wins when present.
 if pgrep -f "bin/hhd" >/dev/null 2>&1; then
-    if systemctl is-active inputplumber >/dev/null 2>&1; then
+    if [ "$(readlink -f /etc/systemd/system/inputplumber.service 2>/dev/null)" != "/dev/null" ]; then
         systemctl disable --now inputplumber 2>/dev/null || true
-        echo -e "${GREEN}✓ inputplumber disabled (HHD owns controller emulation; running both breaks the HHD overlay).${NC}"
+        systemctl mask inputplumber
+        echo -e "${GREEN}✓ inputplumber masked (D-Bus re-activation would resurrect plain disable; HHD owns controller emulation).${NC}"
     else
-        echo -e "${GREEN}✓ inputplumber already off (HHD owns controller emulation).${NC}"
+        echo -e "${GREEN}✓ inputplumber already masked (HHD owns controller emulation).${NC}"
     fi
 else
     if systemctl list-unit-files | grep -q "inputplumber.service"; then

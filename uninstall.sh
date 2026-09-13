@@ -29,8 +29,11 @@ echo "✓ Udev rules removed."
 
 # Restore inputplumber as the controller layer when HHD is not running
 if ! pgrep -f "bin/hhd" >/dev/null 2>&1 && systemctl list-unit-files 2>/dev/null | grep -q "inputplumber.service"; then
+    if [ "$(readlink -f /etc/systemd/system/inputplumber.service 2>/dev/null)" = "/dev/null" ]; then
+        systemctl unmask inputplumber
+    fi
     systemctl enable --now inputplumber.service 2>/dev/null || true
-    echo "✓ inputplumber re-enabled (HHD absent)."
+    echo "✓ inputplumber unmasked and re-enabled (HHD absent)."
 fi
 
 # Remove NVMe thermal guard and write ceiling
