@@ -27,6 +27,12 @@ rm -f /etc/udev/rules.d/99-ayaneo-slide-led-suspend.rules
 udevadm control --reload-rules
 echo "✓ Udev rules removed."
 
+# Restore inputplumber as the controller layer when HHD is not running
+if ! pgrep -f "bin/hhd" >/dev/null 2>&1 && systemctl list-unit-files 2>/dev/null | grep -q "inputplumber.service"; then
+    systemctl enable --now inputplumber.service 2>/dev/null || true
+    echo "✓ inputplumber re-enabled (HHD absent)."
+fi
+
 # Remove NVMe thermal guard and write ceiling
 systemctl disable --now ayaneo-nvme-guard.service 2>/dev/null || true
 rm -f /etc/systemd/system/ayaneo-nvme-guard.service

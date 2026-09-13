@@ -133,11 +133,25 @@ udevadm control --reload-rules
 udevadm trigger
 echo -e "${GREEN}✓ LED sleep auto-off & GPU DPM stability rules installed.${NC}"
 
-# 4. Enable Controller & Platform Services
+# 4. Controller & Platform Services
 echo -e "\n${BLUE}[4/6] Checking Controller & Platform Drivers...${NC}"
-if systemctl list-unit-files | grep -q "inputplumber.service"; then
-    systemctl enable --now inputplumber.service 2>/dev/null || true
-    echo -e "${GREEN}✓ inputplumber.service active (Gamepad / AYASpace buttons).${NC}"
+# InputPlumber and HHD are both controller-emulation layers over the raw
+# gamepad: with both active, InputPlumber hides the device and HHD's emulated
+# controller fails with 'Device or resource busy' every 3s, killing the HHD
+# overlay (its trigger rides on the emulated controller). HHD has official
+# Slide support (gyro, back buttons, QAM), so it wins when present.
+if pgrep -f "bin/hhd" >/dev/null 2>&1; then
+    if systemctl is-active inputplumber >/dev/null 2>&1; then
+        systemctl disable --now inputplumber 2>/dev/null || true
+        echo -e "${GREEN}✓ inputplumber disabled (HHD owns controller emulation; running both breaks the HHD overlay).${NC}"
+    else
+        echo -e "${GREEN}✓ inputplumber already off (HHD owns controller emulation).${NC}"
+    fi
+else
+    if systemctl list-unit-files | grep -q "inputplumber.service"; then
+        systemctl enable --now inputplumber.service 2>/dev/null || true
+        echo -e "${YELLOW}[!] HHD unavailable - inputplumber kept on for controller emulation.${NC}"
+    fi
 fi
 
 # 5. Apply runtime mitigations immediately
