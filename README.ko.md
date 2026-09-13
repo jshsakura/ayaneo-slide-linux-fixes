@@ -34,6 +34,7 @@
 | **eDP 패널 PSR 불안정**<br>*(Steam 실행, Proton prefix 세팅 등 GPU 부하 시 간헐적 데이터 패브릭 sync flood 재부팅 발생)* | DCN 3.1.4의 eDP PSR 전력 상태 전환이 Phoenix APU에서 디스플레이 파이프라인과 Data Fabric을 불안정하게 만듦. | **`amdgpu.dcdebugmask=0x10`**<br>PSR을 비활성화하여 eDP 링크를 활성 상태로 유지, GPU 클럭 전환 시 패브릭 오류 예방. |
 | **3D / Proton 실행 시 Data Fabric Sync Flood [0x08000800]**<br>*(게임 실행이나 3D 그래픽 초기화 시 즉각적인 하드 셧다운/재부팅)* | 피닉스 APU의 통합 GPU가 그래픽 DMA 버퍼를 급격히 요청할 때 IOMMU 동적 주소 변환 페이지 테이블 워크 지연으로 데이터 패브릭 락업 발생. | **`iommu=pt`**<br>통합 장치에 대해 IOMMU를 Passthrough 모드로 설정하여 주소 변환 병목을 우회하고 메모리 컨트롤러 프리징 방지. |
 | **NVMe 대용량 I/O 및 고부하 시 PCIe 전압 강하**<br>*(스팀 고속 다운로드나 셰이더 빌드 중 기기 멈춤 또는 재부팅)* | PCIe 능동 전원 관리(ASPM)가 고속 읽기/쓰기 중간중간 저전력 모드로 전환을 시도하면서 링크 지연 및 순간 전압 강하를 유발함. | **`pcie_aspm=off`**<br>PCIe ASPM 절전 상태를 꺼서 고부하 환경에서도 PCIe 링크를 풀 스피드로 상시 유지. |
+| **디램리스 Lexar NM790 HMB DMA 패브릭 충돌**<br>*(스팀 300Mbps 고속 다운로드로 30~50GB 연속 쓰기 시 0x08000800 Sync Flood 재부팅)* | Maxio MAP1602 컨트롤러가 시스템 램 32MB를 호스트 메모리 버퍼(HMB)로 쓰며 PCIe DMA를 난사하다가, 고온/고부하 시 패킷 동기화 불일치로 Data Fabric 락업 유발. | **`nvme_core.max_host_mem_size_mb=0`**<br>HMB를 완전히 비활성화하여 SSD가 시스템 램을 침범하지 않고 온다이 SRAM 캐시만 쓰도록 강제. |
 
 ---
 
