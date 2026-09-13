@@ -27,7 +27,7 @@ CURRENT_USER="${SUDO_USER:-$USER}"
 USER_HOME=$(eval echo "~$CURRENT_USER")
 
 # 1. Disable unstable background services
-echo -e "\n${BLUE}[1/5] Disabling unstable background daemons...${NC}"
+echo -e "\n${BLUE}[1/6] Power Management (HHD) & Unstable Daemons...${NC}"
 if systemctl is-enabled scx_loader 2>/dev/null | grep -q "enabled"; then
     systemctl disable --now scx_loader 2>/dev/null || true
     echo -e "${GREEN}✓ scx_loader disabled. Reverted to standard Linux EEVDF scheduler.${NC}"
@@ -35,20 +35,39 @@ else
     echo -e "${GREEN}✓ scx_loader is already disabled.${NC}"
 fi
 
-# steamos-manager provides the power-management hub for the deckify stack
-# (CpuScaling/CpuBoost, GpuPerformanceLevel+ManualGpuClock, FanControl,
-# BatteryChargeLimit). Masking it removes all SoC power limits - on battery,
-# 3D transients then trip the 46Wh BMS into hard power-offs (verified the hard
-# way). If a previous version of this installer masked it, restore the unit.
-if [ "$(readlink -f /etc/systemd/system/steamos-manager.service 2>/dev/null)" = "/dev/null" ]; then
-    systemctl unmask steamos-manager
-    echo -e "${GREEN}✓ steamos-manager unmasked (power management restored).${NC}"
+# HHD (Handheld Daemon) is the required power manager: fan curves, TDP limits,
+# controller and gyro, with official AYANEO Slide support. Without TDP limits,
+# heavy 3D transients one-shot the 46Wh BMS into hard power-offs. It conflicts
+# with steamos-manager (both claim the same controls), so the policy is:
+# HHD present -> mask steamos-manager (plain disable is bypassed by Steam's
+# D-Bus activation); HHD absent -> keep steamos-manager as the only power
+# management and warn, because removing it with no replacement caused the
+# battery power-off deaths.
+if ! pgrep -f "bin/hhd" >/dev/null 2>&1 && ! sudo -u "$CURRENT_USER" -- bash -lc 'command -v hhd' >/dev/null 2>&1; then
+    echo -e "${YELLOW}[!] HHD not found - installing Handheld Daemon (official Slide support)...${NC}"
+    sudo -u "$CURRENT_USER" -- bash -c 'curl -L https://raw.githubusercontent.com/hhd-dev/hhd/master/install.sh | bash' || true
+fi
+systemctl enable "hhd_local@${CURRENT_USER}" 2>/dev/null || true
+
+if pgrep -f "bin/hhd" >/dev/null 2>&1; then
+    if [ "$(readlink -f /etc/systemd/system/steamos-manager.service 2>/dev/null)" != "/dev/null" ]; then
+        systemctl disable --now steamos-manager 2>/dev/null || true
+        systemctl mask steamos-manager
+        echo -e "${GREEN}✓ HHD active - steamos-manager masked (conflicts over TDP/fan controls).${NC}"
+    else
+        echo -e "${GREEN}✓ HHD active - steamos-manager already masked.${NC}"
+    fi
 else
-    echo -e "${GREEN}✓ steamos-manager available (power management intact).${NC}"
+    if [ "$(readlink -f /etc/systemd/system/steamos-manager.service 2>/dev/null)" = "/dev/null" ]; then
+        systemctl unmask steamos-manager
+        echo -e "${YELLOW}[!] HHD unavailable - steamos-manager restored as sole power manager. Install HHD before gaming on battery.${NC}"
+    else
+        echo -e "${YELLOW}[!] HHD unavailable - steamos-manager kept as sole power manager. Install HHD before gaming on battery.${NC}"
+    fi
 fi
 
 # 2. Inject verified kernel boot parameters
-echo -e "\n${BLUE}[2/5] Configuring Bootloader Parameters...${NC}"
+echo -e "\n${BLUE}[2/6] Configuring Bootloader Parameters...${NC}"
 LIMINE_DEFAULT="/etc/default/limine"
 
 REQUIRED_PARAMS=(
@@ -95,7 +114,7 @@ else
 fi
 
 # 3. Install udev rules (Self-contained heredocs so curl | sudo bash works anywhere)
-echo -e "\n${BLUE}[3/5] Installing Udev Rules...${NC}"
+echo -e "\n${BLUE}[3/6] Installing Udev Rules...${NC}"
 # Do not install a touchscreen LIBINPUT_CALIBRATION_MATRIX rule: KWin (Plasma
 # Wayland) already applies the panel's 90-degree output transform to touch
 # coordinates, so an extra udev matrix double-rotates touches off-target.
@@ -247,11 +266,12 @@ echo -e "\n${CYAN}==============================================================
 echo -e "${BOLD}${GREEN}  Installation Complete!  ${NC}"
 echo -e "${CYAN}==============================================================================${NC}"
 echo -e "Applied fixes:"
-echo -e "  1. ${BOLD}Sleep/Wake Freeze Fix${NC}: acpi=strict & nvme_core.default_ps_max_latency_us=0"
-echo -e "  2. ${BOLD}Data Fabric Sync Flood (0x08000800) Fix${NC}: processor.max_cstate=1 & idle=nomwait"
-echo -e "  3. ${BOLD}iGPU / NVMe DMA & Bus Stability Fix${NC}: iommu=pt & pcie_aspm=off"
-echo -e "  4. ${BOLD}Display DCN / PSR Stability Fix${NC}: amdgpu.sg_display=0 & amdgpu.dcdebugmask=0x10"
-echo -e "  5. ${BOLD}Joystick LED Auto-Off During Sleep${NC}"
-echo -e "  6. ${BOLD}NVMe Sync Flood Prevention${NC}: 25 MB/s write ceiling & thermal guard service"
+echo -e "  1. ${BOLD}Power Management${NC}: HHD (Handheld Daemon) - TDP/fan/controller; steamos-manager conflict-handled"
+echo -e "  2. ${BOLD}Sleep/Wake Freeze Fix${NC}: acpi=strict & nvme_core.default_ps_max_latency_us=0"
+echo -e "  3. ${BOLD}Data Fabric Sync Flood (0x08000800) Fix${NC}: processor.max_cstate=1 & idle=nomwait"
+echo -e "  4. ${BOLD}iGPU / NVMe DMA & Bus Stability Fix${NC}: iommu=pt & pcie_aspm=off"
+echo -e "  5. ${BOLD}Display DCN / PSR Stability Fix${NC}: amdgpu.sg_display=0 & amdgpu.dcdebugmask=0x10"
+echo -e "  6. ${BOLD}Joystick LED Auto-Off During Sleep${NC}"
+echo -e "  7. ${BOLD}NVMe Sync Flood Prevention${NC}: 25 MB/s write ceiling & thermal guard service"
 echo -e "\n${YELLOW}Please reboot your system to apply all new kernel parameters:${NC}"
 echo -e "  ${BOLD}sudo systemctl reboot${NC}\n"

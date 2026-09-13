@@ -44,8 +44,11 @@ rm -f /etc/systemd/system.control/user.slice.d/50-IOWriteBandwidthMax.conf
 systemctl daemon-reload
 echo "✓ NVMe thermal guard removed and write bandwidth limits cleared."
 
-# Restore masked vendor service
-if [ "$(readlink -f /etc/systemd/system/steamos-manager.service 2>/dev/null)" = "/dev/null" ]; then
+# Restore masked vendor service only when HHD is not providing power
+# management; unmasking while HHD runs recreates the TDP/fan conflict.
+if pgrep -f "bin/hhd" >/dev/null 2>&1; then
+    echo "✓ HHD running - steamos-manager stays masked (conflict)."
+elif [ "$(readlink -f /etc/systemd/system/steamos-manager.service 2>/dev/null)" = "/dev/null" ]; then
     systemctl unmask steamos-manager
     systemctl enable steamos-manager 2>/dev/null || true
     echo "✓ steamos-manager unmasked and re-enabled."
