@@ -174,8 +174,8 @@ cat << 'EOF' > /usr/local/sbin/ayaneo-nvme-guard
 # (~72C measured) by clamping app.slice disk write bandwidth via direct
 # cgroupfs io.max writes. systemd set-property is NOT used: app.slice
 # belongs to the user manager, so root-side set-property binds to nothing.
-ENGAGE_mC=74000
-RELEASE_mC=70000
+ENGAGE_mC=70000
+RELEASE_mC=67000
 CLAMP_WBPS=8000000
 CEIL_WBPS=25000000
 STATE=ok
@@ -246,7 +246,7 @@ EOF
 systemctl daemon-reload
 systemctl enable ayaneo-nvme-guard.service 2>/dev/null || true
 systemctl restart ayaneo-nvme-guard.service
-echo -e "${GREEN}✓ Thermal guard active: 25M ceiling, clamp 8M at 74C, release 70C (app.slice only, desktop exempt).${NC}"
+echo -e "${GREEN}✓ Thermal guard active: 25M ceiling, clamp 8M at 70C, release 67C (app.slice only, desktop exempt).${NC}"
 
 # Optional drive-level self-throttle: report HCTM (Host Controlled Thermal
 # Management, NVMe feature 0x10) support if nvme-cli is installed. HCTM lets
