@@ -114,14 +114,14 @@ udevadm trigger
 echo -e "${GREEN}✓ LED sleep auto-off & GPU DPM stability rules installed.${NC}"
 
 # 4. Enable Controller & Platform Services
-echo -e "\n${BLUE}[4/5] Checking Controller & Platform Drivers...${NC}"
+echo -e "\n${BLUE}[4/6] Checking Controller & Platform Drivers...${NC}"
 if systemctl list-unit-files | grep -q "inputplumber.service"; then
     systemctl enable --now inputplumber.service 2>/dev/null || true
     echo -e "${GREEN}✓ inputplumber.service active (Gamepad / AYASpace buttons).${NC}"
 fi
 
 # 5. Apply runtime mitigations immediately
-echo -e "\n${BLUE}[5/5] Applying Runtime Mitigations...${NC}"
+echo -e "\n${BLUE}[5/6] Applying Runtime Mitigations...${NC}"
 for d in /sys/devices/system/cpu/cpu*/cpuidle/state3/disable; do
     if [ -f "$d" ]; then
         echo 1 > "$d" 2>/dev/null || true
@@ -140,6 +140,70 @@ if [ -f "/sys/class/leds/ayaneo:rgb:joystick_rings/suspend_mode" ]; then
     echo -e "${GREEN}✓ Joystick LED suspend mode set to off.${NC}"
 fi
 
+# 6. NVMe write-bandwidth ceiling + thermal guard (sync flood prevention)
+# The DRAM-less NVMe hits ~72C at full-speed sustained writes (40 MB/s), which
+# is the measured Data Fabric sync-flood crash zone on this chassis. The
+# kernel-level cgroup io ceiling caps user-space disk writes independent of
+# any application; the guard tightens it further when the drive runs hot.
+echo -e "\n${BLUE}[6/6] Installing NVMe Write Ceiling & Thermal Guard...${NC}"
+ROOT_DISK=$(findmnt -n -o SOURCE / | sed 's/\[.*//; s/p[0-9]\+$//')
+
+systemctl set-property user.slice "IOWriteBandwidthMax=$ROOT_DISK 25M"
+echo -e "${GREEN}✓ Persistent user.slice write ceiling: 25 MB/s on $ROOT_DISK (all apps).${NC}"
+
+cat << 'EOF' > /usr/local/sbin/ayaneo-nvme-guard
+#!/usr/bin/env bash
+# Keeps the DRAM-less NVMe below the Data Fabric sync-flood danger zone
+# (~72C measured) by dynamically clamping user.slice disk write bandwidth.
+ENGAGE_mC=69000
+RELEASE_mC=66000
+CLAMP_RATE=8M
+STATE=ok
+CEIL_DEV=$(findmnt -n -o SOURCE / | sed 's/\[.*//; s/p[0-9]\+$//')
+
+log() { logger -t ayaneo-nvme-guard "$1"; }
+nvme_temp() {
+    for h in /sys/class/hwmon/hwmon*; do
+        if [ "$(cat "$h/name" 2>/dev/null)" = "nvme" ]; then
+            cat "$h/temp1_input" 2>/dev/null && return 0
+        fi
+    done
+    return 1
+}
+
+log "started: device=$CEIL_DEV engage=$((ENGAGE_mC/1000))C release=$((RELEASE_mC/1000))C clamp=$CLAMP_RATE"
+while sleep 5; do
+    t=$(nvme_temp) || continue
+    if [ "$t" -ge "$ENGAGE_mC" ] && [ "$STATE" != "hot" ]; then
+        systemctl set-property --runtime user.slice "IOWriteBandwidthMax=$CEIL_DEV $CLAMP_RATE"
+        STATE=hot
+        log "NVMe at $((t/1000))C - write bandwidth clamped to $CLAMP_RATE"
+    elif [ "$t" -le "$RELEASE_mC" ] && [ "$STATE" != "ok" ]; then
+        systemctl set-property --runtime user.slice "IOWriteBandwidthMax="
+        STATE=ok
+        log "NVMe at $((t/1000))C - runtime clamp removed (persistent 25M ceiling remains)"
+    fi
+done
+EOF
+chmod 755 /usr/local/sbin/ayaneo-nvme-guard
+
+cat << 'EOF' > /etc/systemd/system/ayaneo-nvme-guard.service
+[Unit]
+Description=AYANEO Slide NVMe thermal guard (Data Fabric sync flood prevention)
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/ayaneo-nvme-guard
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload
+systemctl enable --now ayaneo-nvme-guard.service
+echo -e "${GREEN}✓ Thermal guard service active (69C engage / 66C release / 8M clamp).${NC}"
+
 echo -e "\n${CYAN}==============================================================================${NC}"
 echo -e "${BOLD}${GREEN}  Installation Complete!  ${NC}"
 echo -e "${CYAN}==============================================================================${NC}"
@@ -149,5 +213,6 @@ echo -e "  2. ${BOLD}Data Fabric Sync Flood (0x08000800) Fix${NC}: processor.max
 echo -e "  3. ${BOLD}iGPU / NVMe DMA & Bus Stability Fix${NC}: iommu=pt & pcie_aspm=off"
 echo -e "  4. ${BOLD}Display DCN / PSR Stability Fix${NC}: amdgpu.sg_display=0 & amdgpu.dcdebugmask=0x10"
 echo -e "  5. ${BOLD}Joystick LED Auto-Off During Sleep${NC}"
+echo -e "  6. ${BOLD}NVMe Sync Flood Prevention${NC}: 25 MB/s write ceiling & thermal guard service"
 echo -e "\n${YELLOW}Please reboot your system to apply all new kernel parameters:${NC}"
 echo -e "  ${BOLD}sudo systemctl reboot${NC}\n"
