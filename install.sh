@@ -26,13 +26,20 @@ fi
 CURRENT_USER="${SUDO_USER:-$USER}"
 USER_HOME=$(eval echo "~$CURRENT_USER")
 
-# 1. Disable unstable BPF CPU schedulers
-echo -e "\n${BLUE}[1/5] Disabling unstable BPF scheduler (scx_loader)...${NC}"
+# 1. Disable unstable background services
+echo -e "\n${BLUE}[1/5] Disabling unstable background daemons...${NC}"
 if systemctl is-enabled scx_loader 2>/dev/null | grep -q "enabled"; then
     systemctl disable --now scx_loader 2>/dev/null || true
     echo -e "${GREEN}✓ scx_loader disabled. Reverted to standard Linux EEVDF scheduler.${NC}"
 else
     echo -e "${GREEN}✓ scx_loader is already disabled.${NC}"
+fi
+
+if systemctl is-enabled steamos-manager 2>/dev/null | grep -q "enabled"; then
+    systemctl disable --now steamos-manager 2>/dev/null || true
+    echo -e "${GREEN}✓ steamos-manager disabled (prevents invalid GPU clock DPM calls on 7840U).${NC}"
+else
+    echo -e "${GREEN}✓ steamos-manager is already disabled.${NC}"
 fi
 
 # 2. Inject verified kernel boot parameters
@@ -89,9 +96,14 @@ cat << 'EOF' > /etc/udev/rules.d/99-ayaneo-slide-led-suspend.rules
 ACTION=="add|change", KERNEL=="ayaneo:rgb:joystick_rings", SUBSYSTEM=="leds", ATTR{suspend_mode}="off"
 EOF
 
+cat << 'EOF' > /etc/udev/rules.d/99-amdgpu-dpm-performance.rules
+# Lock AMD GPU DPM performance level to high to prevent Data Fabric Sync Flood
+ACTION=="add|change", SUBSYSTEM=="drm", KERNEL=="card[0-9]*", ATTR{device/power_dpm_force_performance_level}="high"
+EOF
+
 udevadm control --reload-rules
 udevadm trigger
-echo -e "${GREEN}✓ LED sleep auto-off rule installed (/etc/udev/rules.d/99-ayaneo-slide-led-suspend.rules).${NC}"
+echo -e "${GREEN}✓ LED sleep auto-off & GPU DPM stability rules installed.${NC}"
 
 # 4. Enable Controller & Platform Services
 echo -e "\n${BLUE}[4/5] Checking Controller & Platform Drivers...${NC}"
@@ -107,6 +119,13 @@ for d in /sys/devices/system/cpu/cpu*/cpuidle/state3/disable; do
         echo 1 > "$d" 2>/dev/null || true
     fi
 done
+
+for d in /sys/class/drm/card*/device/power_dpm_force_performance_level; do
+    if [ -f "$d" ]; then
+        echo "high" > "$d" 2>/dev/null || true
+    fi
+done
+echo -e "${GREEN}✓ AMD GPU DPM performance level set to high.${NC}"
 
 if [ -f "/sys/class/leds/ayaneo:rgb:joystick_rings/suspend_mode" ]; then
     echo "off" > /sys/class/leds/ayaneo:rgb:joystick_rings/suspend_mode 2>/dev/null || true
