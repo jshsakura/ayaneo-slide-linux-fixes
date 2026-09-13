@@ -47,6 +47,8 @@ REQUIRED_PARAMS=(
     "tsc=reliable"
     "amdgpu.sg_display=0"
     "amdgpu.dcdebugmask=0x10"
+    "iommu=pt"
+    "pcie_aspm=off"
 )
 
 if [ -f "$LIMINE_DEFAULT" ]; then
@@ -55,6 +57,9 @@ if [ -f "$LIMINE_DEFAULT" ]; then
         cp "$LIMINE_DEFAULT" "${LIMINE_DEFAULT}.orig"
         echo -e "  + Created backup: ${LIMINE_DEFAULT}.orig"
     fi
+
+    # Clean up obsolete or invalid parameters
+    sed -i -E "s/[[:space:]]*amdgpu\.gfxoff=0//g" "$LIMINE_DEFAULT"
 
     for p in "${REQUIRED_PARAMS[@]}"; do
         if grep -q "$p" "$LIMINE_DEFAULT"; then
@@ -114,7 +119,8 @@ echo -e "${CYAN}================================================================
 echo -e "Applied fixes:"
 echo -e "  1. ${BOLD}Sleep/Wake Freeze Fix${NC}: acpi=strict & nvme_core.default_ps_max_latency_us=0"
 echo -e "  2. ${BOLD}Data Fabric Sync Flood (0x08000800) Fix${NC}: processor.max_cstate=1 & idle=nomwait"
-echo -e "  3. ${BOLD}Display PSR Sync Flood Fix${NC}: amdgpu.dcdebugmask=0x10"
-echo -e "  4. ${BOLD}Joystick LED Auto-Off During Sleep${NC}"
+echo -e "  3. ${BOLD}iGPU / NVMe DMA & Bus Stability Fix${NC}: iommu=pt & pcie_aspm=off"
+echo -e "  4. ${BOLD}Display DCN / PSR Stability Fix${NC}: amdgpu.sg_display=0 & amdgpu.dcdebugmask=0x10"
+echo -e "  5. ${BOLD}Joystick LED Auto-Off During Sleep${NC}"
 echo -e "\n${YELLOW}Please reboot your system to apply all new kernel parameters:${NC}"
 echo -e "  ${BOLD}sudo systemctl reboot${NC}\n"

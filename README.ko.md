@@ -32,6 +32,8 @@
 | **클럭소스 워치독 원격 CPU 타임아웃**<br>*(커널 로그에 `Watchdog remote CPU read timed out` 경고 발생)* | 전력 상태 전환 시 TSC 클럭 타이머 드리프트 발생. | **`tsc=reliable`**<br>16스레드 전체에서 invariant TSC를 신뢰할 수 있는 클럭소스로 고정. |
  | **도킹 허브 / 외장 모니터 연결 시 DCN 락업**<br>*(USB-C 도크 연결 시 커널에 `REG_WAIT timeout in dcn31_program_compbuf_size` 경고 발생)* | DCN 3.1.4 디스플레이 압축 버퍼가 대역폭 재할당 시 시스템 메모리 버스(Data Fabric)와 충돌하여 응답 타임아웃 발생. | **`amdgpu.sg_display=0`**<br>APU의 비연속적 Scatter-Gather 메모리 할당을 끄고 연속 VRAM을 강제하여 DCHUBBUB 동기화 락업 방지. |
 | **eDP 패널 PSR 불안정**<br>*(Steam 실행, Proton prefix 세팅 등 GPU 부하 시 간헐적 데이터 패브릭 sync flood 재부팅 발생)* | DCN 3.1.4의 eDP PSR 전력 상태 전환이 Phoenix APU에서 디스플레이 파이프라인과 Data Fabric을 불안정하게 만듦. | **`amdgpu.dcdebugmask=0x10`**<br>PSR을 비활성화하여 eDP 링크를 활성 상태로 유지, GPU 클럭 전환 시 패브릭 오류 예방. |
+| **3D / Proton 실행 시 Data Fabric Sync Flood [0x08000800]**<br>*(게임 실행이나 3D 그래픽 초기화 시 즉각적인 하드 셧다운/재부팅)* | 피닉스 APU의 통합 GPU가 그래픽 DMA 버퍼를 급격히 요청할 때 IOMMU 동적 주소 변환 페이지 테이블 워크 지연으로 데이터 패브릭 락업 발생. | **`iommu=pt`**<br>통합 장치에 대해 IOMMU를 Passthrough 모드로 설정하여 주소 변환 병목을 우회하고 메모리 컨트롤러 프리징 방지. |
+| **NVMe 대용량 I/O 및 고부하 시 PCIe 전압 강하**<br>*(스팀 고속 다운로드나 셰이더 빌드 중 기기 멈춤 또는 재부팅)* | PCIe 능동 전원 관리(ASPM)가 고속 읽기/쓰기 중간중간 저전력 모드로 전환을 시도하면서 링크 지연 및 순간 전압 강하를 유발함. | **`pcie_aspm=off`**<br>PCIe ASPM 절전 상태를 꺼서 고부하 환경에서도 PCIe 링크를 풀 스피드로 상시 유지. |
 
 ---
 
@@ -62,7 +64,7 @@ sudo systemctl reboot
 
 ### `install.sh` 스크립트 동작 과정
 1. **안전 백업**: `/etc/default/limine`을 `/etc/default/limine.orig`로 자동 백업합니다.
-2. **커널 파라미터 주입**: `acpi=strict`, `processor.max_cstate=1`, `idle=nomwait`, `nvme_core.default_ps_max_latency_us=0`, `tsc=reliable`, `amdgpu.sg_display=0`, `amdgpu.dcdebugmask=0x10`을 부트로더에 안전하게 추가합니다.
+2. **커널 파라미터 주입**: `acpi=strict`, `processor.max_cstate=1`, `idle=nomwait`, `nvme_core.default_ps_max_latency_us=0`, `tsc=reliable`, `amdgpu.sg_display=0`, `amdgpu.dcdebugmask=0x10`, `iommu=pt`, `pcie_aspm=off`를 부트로더에 안전하게 추가하고 무효 파라미터(`amdgpu.gfxoff=0`)를 정리합니다.
 3. **스케줄러 안정화**: 실험적이고 불안정한 BPF CPU 스케줄러(`scx_loader`)를 영구 비활성화하고 정석 EEVDF 스케줄러로 복구합니다.
 4. **하드웨어 udev 룰 등록**: 조이스틱 LED 절전 자동 소등 룰을 시스템에 등록합니다. (터치스크린 가로 보정은 컴포지터가 자체 처리하므로 룰을 별도로 설치하지 않습니다.)
 5. **부트로더 갱신**: `limine-update`를 실행하여 새로운 커널 설정과 initramfs를 빌드합니다.

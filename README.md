@@ -32,6 +32,8 @@ A battle-tested, community-verified optimization suite that eliminates all chron
 | **Clocksource Watchdog Timeouts**<br>*(Kernel logs `Watchdog remote CPU read timed out` on core frequency changes)* | Variable TSC frequency shifts during APU governor changes. | **`tsc=reliable`**<br>Marks invariant TSC as a reliable clocksource across all 16 APU threads. |
  | **DCN Hubbub Lockup on Dock / External Display**<br>*(Kernel warning `REG_WAIT timeout in dcn31_program_compbuf_size` when plugging in USB-C dock or changing resolution)* | DCN 3.1.4 display compression buffer arbiter locks up on the Data Fabric during Scatter-Gather DMA reallocations. | **`amdgpu.sg_display=0`**<br>Disables non-contiguous Scatter-Gather display buffer allocations on APU, using dedicated VRAM to guarantee DCHUBBUB stability. |
 | **eDP Panel Self Refresh (PSR) Instability**<br>*(Intermittent data fabric sync flood resets under GPU load — e.g. Steam launch or Proton prefix setup)* | DCN 3.1.4 PSR power-state transitions on the eDP panel destabilize the display pipeline and the Data Fabric on Phoenix APUs. | **`amdgpu.dcdebugmask=0x10`**<br>Disables PSR, keeping the eDP link active to avoid fabric-level faults during GPU clock transitions. |
+| **3D / Proton Launch Fabric Sync Flood**<br>*(Hard reboot with reset reason `[0x08000800]` when Proton/Vulkan initializes 3D graphics)* | IOMMU dynamic DMA address translation table walks introduce stalls on APU unified memory interconnect under burst graphics memory requests. | **`iommu=pt`**<br>Sets IOMMU to Passthrough mode for integrated APU DMA, bypassing address translation overhead and memory controller stalls. |
+| **PCIe Link Voltage / Latency Droop Under Load**<br>*(Sudden resets or device drops during sustained disk I/O or power transitions)* | PCIe Active State Power Management (ASPM) causes link latency and voltage fluctuations on DRAM-less NVMe controllers and internal bridges. | **`pcie_aspm=off`**<br>Disables PCIe ASPM power saving states, ensuring continuous high-speed signal integrity under load. |
 
 ---
 
@@ -62,7 +64,7 @@ sudo systemctl reboot
 
 ### What `install.sh` Does:
 1. **Safety Backup**: Backs up `/etc/default/limine` to `/etc/default/limine.orig`.
-2. **Kernel Parameters**: Appends `acpi=strict`, `processor.max_cstate=1`, `idle=nomwait`, `nvme_core.default_ps_max_latency_us=0`, `tsc=reliable`, `amdgpu.sg_display=0`, and `amdgpu.dcdebugmask=0x10` to your bootloader.
+2. **Kernel Parameters**: Appends `acpi=strict`, `processor.max_cstate=1`, `idle=nomwait`, `nvme_core.default_ps_max_latency_us=0`, `tsc=reliable`, `amdgpu.sg_display=0`, `amdgpu.dcdebugmask=0x10`, `iommu=pt`, and `pcie_aspm=off` to your bootloader. Cleans obsolete/invalid parameters (`amdgpu.gfxoff=0`).
 3. **Scheduler Stabilization**: Permanently disables experimental BPF schedulers (`scx_loader`) in favor of upstream Linux EEVDF.
 4. **Hardware Udev Rules**: Installs the joystick LED suspend auto-off rule. (Touchscreen landscape rotation is handled natively by the compositor, so no calibration rule is installed.)
 5. **Bootloader Rebuild**: Automatically executes `limine-update` to regenerate boot configs and initramfs.

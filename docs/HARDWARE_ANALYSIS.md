@@ -71,3 +71,48 @@ This document details the root causes and technical resolutions for known hardwa
 
 ### Solution
 * `amdgpu.sg_display=0`: Disables Scatter-Gather display buffer allocations on the APU, forcing contiguous dedicated VRAM for display buffers and completely eliminating HUBBUB compression buffer register timeouts.
+
+---
+
+## 5. 3D / Proton Launch Data Fabric Sync Flood & IOMMU Overhead
+
+### Symptoms
+* Launching a 3D game (Vulkan/Proton) immediately causes an instant hard reboot.
+* Previous reset reason is recorded as:
+  ```text
+  x86/amd: Previous system reset reason [0x08000800]: an uncorrected error caused a data fabric sync flood event
+  ```
+
+### Root Cause
+On AMD Phoenix APUs (Ryzen 7 7840U / 8840U), the CPU and Radeon 780M iGPU share a unified memory controller over the AMD Infinity Fabric. When 3D engines initialize and allocate large VRAM slabs via DMA, the kernel's default dynamic IOMMU DMA translation table walk generates micro-stalls and bus contention on the Data Fabric. Under burst load, these stalls escalate into an uncorrectable fabric timeout.
+
+### Solution
+* `iommu=pt`: Sets IOMMU to Passthrough mode for integrated APU DMA devices. This eliminates address translation overhead and translation table walk stalls, allowing direct zero-latency DMA between the iGPU and unified RAM.
+
+---
+
+## 6. PCIe Power State Transition Droop on NVMe & Root Complex
+
+### Symptoms
+* Device freezes or resets under sustained heavy NVMe disk writes (such as Steam game downloads, updates, or decompression).
+* Controller timeout or ACPI power state transition errors (`[0x00200800]`).
+
+### Root Cause
+Active State Power Management (ASPM) commands PCIe devices to enter lower power states (L0s/L1) during micro-idle intervals. The DRAM-less Lexar NM790 (Maxio MAP1602 controller) and the APU internal PCIe bridges experience significant latency and voltage droop when rapidly switching back to active L0.
+
+### Solution
+* `pcie_aspm=off`: Completely disables PCIe ASPM, forcing PCIe links to remain in full-power active mode (L0) at all times, preventing bus drops and voltage transients.
+
+---
+
+## 7. eDP Panel Self Refresh (PSR) Instability
+
+### Symptoms
+* Screen flashes white or goes black under GPU clock shifts or when switching between desktop and full-screen games.
+
+### Root Cause
+DCN 3.1.4 PSR power-state transitions on the eDP panel conflict with rapid APU clock scaling.
+
+### Solution
+* `amdgpu.dcdebugmask=0x10`: Completely disables Panel Self Refresh, keeping the display link continuously clocked and eliminating fabric sync floods during display mode changes.
+
