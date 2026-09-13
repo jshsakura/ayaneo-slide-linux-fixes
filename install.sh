@@ -35,15 +35,16 @@ else
     echo -e "${GREEN}✓ scx_loader is already disabled.${NC}"
 fi
 
-# Mask instead of disable: Steam re-activates this unit through the
-# com.steampowered.SteamOSManager1 D-Bus interface on every boot, which
-# silently bypasses plain 'disable'. Only a mask blocks that path.
+# steamos-manager provides the power-management hub for the deckify stack
+# (CpuScaling/CpuBoost, GpuPerformanceLevel+ManualGpuClock, FanControl,
+# BatteryChargeLimit). Masking it removes all SoC power limits - on battery,
+# 3D transients then trip the 46Wh BMS into hard power-offs (verified the hard
+# way). If a previous version of this installer masked it, restore the unit.
 if [ "$(readlink -f /etc/systemd/system/steamos-manager.service 2>/dev/null)" = "/dev/null" ]; then
-    echo -e "${GREEN}✓ steamos-manager is already masked.${NC}"
+    systemctl unmask steamos-manager
+    echo -e "${GREEN}✓ steamos-manager unmasked (power management restored).${NC}"
 else
-    systemctl disable --now steamos-manager 2>/dev/null || true
-    systemctl mask steamos-manager
-    echo -e "${GREEN}✓ steamos-manager masked (blocks Steam D-Bus re-activation; prevents invalid GPU clock DPM calls on 7840U).${NC}"
+    echo -e "${GREEN}✓ steamos-manager available (power management intact).${NC}"
 fi
 
 # 2. Inject verified kernel boot parameters
