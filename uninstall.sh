@@ -27,6 +27,13 @@ rm -f /etc/udev/rules.d/99-ayaneo-slide-led-suspend.rules
 udevadm control --reload-rules
 echo "✓ Udev rules removed."
 
+# Restore masked vendor service
+if [ "$(readlink -f /etc/systemd/system/steamos-manager.service 2>/dev/null)" = "/dev/null" ]; then
+    systemctl unmask steamos-manager
+    systemctl enable steamos-manager 2>/dev/null || true
+    echo "✓ steamos-manager unmasked and re-enabled."
+fi
+
 # Restore bootloader if backup exists
 if [ -f /etc/default/limine.orig ]; then
     echo "Restoring original Limine configuration..."

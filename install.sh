@@ -35,11 +35,15 @@ else
     echo -e "${GREEN}✓ scx_loader is already disabled.${NC}"
 fi
 
-if systemctl is-enabled steamos-manager 2>/dev/null | grep -q "enabled"; then
-    systemctl disable --now steamos-manager 2>/dev/null || true
-    echo -e "${GREEN}✓ steamos-manager disabled (prevents invalid GPU clock DPM calls on 7840U).${NC}"
+# Mask instead of disable: Steam re-activates this unit through the
+# com.steampowered.SteamOSManager1 D-Bus interface on every boot, which
+# silently bypasses plain 'disable'. Only a mask blocks that path.
+if [ "$(readlink -f /etc/systemd/system/steamos-manager.service 2>/dev/null)" = "/dev/null" ]; then
+    echo -e "${GREEN}✓ steamos-manager is already masked.${NC}"
 else
-    echo -e "${GREEN}✓ steamos-manager is already disabled.${NC}"
+    systemctl disable --now steamos-manager 2>/dev/null || true
+    systemctl mask steamos-manager
+    echo -e "${GREEN}✓ steamos-manager masked (blocks Steam D-Bus re-activation; prevents invalid GPU clock DPM calls on 7840U).${NC}"
 fi
 
 # 2. Inject verified kernel boot parameters
