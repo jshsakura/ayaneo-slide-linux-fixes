@@ -215,7 +215,8 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
 systemctl daemon-reload
-systemctl enable --now ayaneo-nvme-guard.service
+systemctl enable ayaneo-nvme-guard.service 2>/dev/null || true
+systemctl restart ayaneo-nvme-guard.service
 echo -e "${GREEN}✓ Thermal guard active: clamp 8M at 74C, release at 70C - app.slice only (desktop stays responsive).${NC}"
 
 # Optional drive-level self-throttle: report HCTM (Host Controlled Thermal
