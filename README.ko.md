@@ -27,7 +27,7 @@
 | **절전 모드(Sleep) 진입 후 영구 프리징**<br>*(전원 버튼으로 절전 진입 시 화면이 어두워진 채로 멈추며 버튼/화면 일체 반응 없음)* | 아야네오 슬라이드의 AMI 바이오스 ACPI DSDT 테이블에 비표준 전원 코드가 포함되어, 리눅스 커널 전원 관리자가 `s2idle` 진입 및 복귀 시 락업에 빠짐. | **`acpi=strict`**<br>커널이 제조사의 결함 있는 비표준 코드를 무시하고 엄격한 ACPI 국제 표준 규격만 따르도록 강제 (*ChimeraOS 이슈 #892 검증*). |
 | **이유 없는 갑작스러운 재부팅 / 셧다운**<br>*(메뉴 화면이나 대기 상태에서 갑자기 화면이 꺼지며 재부팅, 하드웨어 에러 `0x08000800` 기록)* | AMD Zen 4 모바일 칩셋이 C3 초절전 상태로 들어갈 때 SoC 전압이 급락함. 코어 복귀 시 전압 강하(Voltage Droop)로 인해 AMD 인피니티 패브릭에 하드웨어 패리티 에러가 발생, CPU 다이가 강제 **Sync Flood** 리셋을 실행함. | **`processor.max_cstate=1`** & **`idle=nomwait`**<br>CPU 대기 상태를 안전한 C1으로 제한하여 전압 강하를 원천 차단. 불안정한 CachyOS BPF 스케줄러(`scx_loader`) 비활성화. |
 | **렉사 NM790 NVMe SSD 절전 사망**<br>*(절전 모드 후 SSD가 PCIe 버스에서 분리되어 커널 패닉 및 I/O 멈춤 발생)* | MAP1602 DRAM-less 컨트롤러가 리눅스에서 딥슬립(APST PS4) 복귀 시 타임아웃을 일으켜 링크가 끊어짐. | **`nvme_core.default_ps_max_latency_us=0`**<br>NVMe SSD의 APST 대기 절전 모드를 비활성화하여 항상 안정적인 응답 대기 상태 유지. |
-| **터치스크린 90도 좌표 왜곡**<br>*(가로 화면 상태에서 터치 드래그 시 커서가 상하로 움직임)* | 물리 패널이 1080x1920 세로(Portrait) 규격이라 Wayland/libinput 상에서 90도 시계방향 회전 보정 매트릭스가 필요함. | **`udev/99-ayaneo-slide-touchscreen.rules`**<br>터치 입력 시 `LIBINPUT_CALIBRATION_MATRIX="0 1 0 -1 0 1"` 자동 매핑. |
+| **터치 입력이 엉뚱한 곳에 찍힘 (이중 회전)**<br>*(터치한 위치가 아닌 회전된 위치에 입력됨)* | 물리 패널이 1080x1920 세로(Portrait) 규격이라 KWin(Plasma Wayland)이 가로 출력 회전(output transform)을 터치 좌표에 자동 적용함. 여기에 udev `LIBINPUT_CALIBRATION_MATRIX` 90도 회전 매트릭스를 얹으면 좌표가 한 번 더 회전하여 반대편에 입력됨. | **캘리브레이션 매트릭스 미적용**<br>회전 보정은 컴포지터가 자체 처리하므로 이전 `99-ayaneo-slide-touchscreen.rules`는 제거됨. |
 | **절전 중 조이스틱 RGB LED 배터리 방전**<br>*(기기가 절전 상태인데도 조이스틱 테두리 링 LED가 계속 깜빡이며 배터리를 소모함)* | 순정 펌웨어 기본값이 절전 중 점멸(`[oem] keep off`)로 되어 있음. | **`udev/99-ayaneo-slide-led-suspend.rules`**<br>절전 모드 진입 시 LED 전원을 완전히 끄는 `ATTR{suspend_mode}="off"` 규칙 적용. |
 | **클럭소스 워치독 원격 CPU 타임아웃**<br>*(커널 로그에 `Watchdog remote CPU read timed out` 경고 발생)* | 전력 상태 전환 시 TSC 클럭 타이머 드리프트 발생. | **`tsc=reliable`**<br>16스레드 전체에서 invariant TSC를 신뢰할 수 있는 클럭소스로 고정. |
 | **도킹 허브 / 외장 모니터 연결 시 DCN 락업**<br>*(USB-C 도크 연결 시 커널에 `REG_WAIT timeout in dcn31_program_compbuf_size` 경고 발생)* | DCN 3.1.4 디스플레이 압축 버퍼가 대역폭 재할당 시 시스템 메모리 버스(Data Fabric)와 충돌하여 응답 타임아웃 발생. | **`amdgpu.sg_display=0`**<br>APU의 비연속적 Scatter-Gather 메모리 할당을 끄고 연속 VRAM을 강제하여 DCHUBBUB 동기화 락업 방지. |
@@ -63,7 +63,7 @@ sudo systemctl reboot
 1. **안전 백업**: `/etc/default/limine`을 `/etc/default/limine.orig`로 자동 백업합니다.
 2. **커널 파라미터 주입**: `acpi=strict`, `processor.max_cstate=1`, `idle=nomwait`, `nvme_core.default_ps_max_latency_us=0`, `tsc=reliable`을 부트로더에 안전하게 추가합니다.
 3. **스케줄러 안정화**: 실험적이고 불안정한 BPF CPU 스케줄러(`scx_loader`)를 영구 비활성화하고 정석 EEVDF 스케줄러로 복구합니다.
-4. **하드웨어 udev 룰 등록**: 터치스크린 가로 보정 룰과 조이스틱 LED 절전 자동 소등 룰을 시스템에 등록합니다.
+4. **하드웨어 udev 룰 등록**: 조이스틱 LED 절전 자동 소등 룰을 시스템에 등록합니다. (터치스크린 가로 보정은 컴포지터가 자체 처리하므로 룰을 별도로 설치하지 않습니다.)
 5. **부트로더 갱신**: `limine-update`를 실행하여 새로운 커널 설정과 initramfs를 빌드합니다.
 
 ---

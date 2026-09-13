@@ -1,2 +1,0 @@
-# AYANEO Slide Goodix Capacitive TouchScreen Calibration for Landscape
-ACTION=="add|change", KERNEL=="event*", ATTRS{name}=="Goodix Capacitive TouchScreen", ENV{LIBINPUT_CALIBRATION_MATRIX}="0 1 0 -1 0 1"

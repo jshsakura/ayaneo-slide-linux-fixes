@@ -74,10 +74,9 @@ fi
 
 # 3. Install udev rules (Self-contained heredocs so curl | sudo bash works anywhere)
 echo -e "\n${BLUE}[3/5] Installing Udev Rules...${NC}"
-cat << 'EOF' > /etc/udev/rules.d/99-ayaneo-slide-touchscreen.rules
-# AYANEO Slide Goodix Capacitive TouchScreen Calibration for Landscape
-ACTION=="add|change", KERNEL=="event*", ATTRS{name}=="Goodix Capacitive TouchScreen", ENV{LIBINPUT_CALIBRATION_MATRIX}="0 1 0 -1 0 1"
-EOF
+# Do not install a touchscreen LIBINPUT_CALIBRATION_MATRIX rule: KWin (Plasma
+# Wayland) already applies the panel's 90-degree output transform to touch
+# coordinates, so an extra udev matrix double-rotates touches off-target.
 
 cat << 'EOF' > /etc/udev/rules.d/99-ayaneo-slide-led-suspend.rules
 # Turn off joystick RGB LEDs during sleep to save battery
@@ -86,7 +85,6 @@ EOF
 
 udevadm control --reload-rules
 udevadm trigger
-echo -e "${GREEN}✓ Touchscreen calibration rule installed (/etc/udev/rules.d/99-ayaneo-slide-touchscreen.rules).${NC}"
 echo -e "${GREEN}✓ LED sleep auto-off rule installed (/etc/udev/rules.d/99-ayaneo-slide-led-suspend.rules).${NC}"
 
 # 4. Enable Controller & Platform Services
@@ -115,7 +113,6 @@ echo -e "${CYAN}================================================================
 echo -e "Applied fixes:"
 echo -e "  1. ${BOLD}Sleep/Wake Freeze Fix${NC}: acpi=strict & nvme_core.default_ps_max_latency_us=0"
 echo -e "  2. ${BOLD}Data Fabric Sync Flood (0x08000800) Fix${NC}: processor.max_cstate=1 & idle=nomwait"
-echo -e "  3. ${BOLD}Touchscreen Landscape Calibration Matrix${NC}"
-echo -e "  4. ${BOLD}Joystick LED Auto-Off During Sleep${NC}"
+echo -e "  3. ${BOLD}Joystick LED Auto-Off During Sleep${NC}"
 echo -e "\n${YELLOW}Please reboot your system to apply all new kernel parameters:${NC}"
 echo -e "  ${BOLD}sudo systemctl reboot${NC}\n"
