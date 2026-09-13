@@ -63,11 +63,12 @@ sudo systemctl set-property user.slice IOWriteBandwidthMax="/dev/nvme0n1 20M"
 ```bash
 sudo pacman -S nvme-cli
 sudo nvme get-feature /dev/nvme0 -f 0x10     # 지원 시 TMT1/TMT2 출력
-# 60°C(333K)에서 자가 스로틀, 75°C(348K) 하드스톱으로 설정:
-sudo nvme set-feature /dev/nvme0 -f 0x10 -v 0x015C014D
+# 60°C(333K)에서 자가 스로틀, 75°C(348K) 하드스톱 — 전원 사이클에도 유지:
+sudo nvme set-feature /dev/nvme0 -f 0x10 -v 0x015C014D -s
+sudo nvme get-feature /dev/nvme0 -f 0x10     # 검증: 같은 값이면 매핑 확정
 ```
 
-HCTM 온도는 켈빈(°C + 273)입니다. 설치 스크립트는 `nvme-cli`가 있으면 HCTM 지원 여부를 자동 탐지해 보고합니다.
+HCTM 온도는 켈빈(°C + 273)이며 `-s`(save) 없이 설정하면 전원이 꺼지면 리셋됩니다. NM7A1 출고값은 TMT1/TMT2가 115°C/100°C — 자체 크리티컬 셧다운 온도보다 높아 사실상 자가 스로틀 비활성 상태입니다. 검증에서 값이 바이트 스왑되어 돌아오면(`0x014D015C`) 펌웨어가 필드 순서를 반대로 쓰는 것이니 반전된 값을 설정하세요. 설치 스크립트는 `nvme-cli`가 있으면 HCTM 지원 여부를 자동 탐지해 보고합니다.
 
 **방법 C — 문제 클래스 자체 제거:** DRAM 내장 SSD로 교체 — HMB가 존재 자체를 멈춥니다.
 

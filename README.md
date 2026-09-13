@@ -63,11 +63,12 @@ sudo systemctl set-property user.slice IOWriteBandwidthMax="/dev/nvme0n1 20M"
 ```bash
 sudo pacman -S nvme-cli
 sudo nvme get-feature /dev/nvme0 -f 0x10     # prints TMT1/TMT2 if supported
-# To self-throttle at 60°C (333K), hard-stop 75°C (348K):
-sudo nvme set-feature /dev/nvme0 -f 0x10 -v 0x015C014D
+# To self-throttle at 60°C (333K), hard-stop 75°C (348K) — saved across power cycles:
+sudo nvme set-feature /dev/nvme0 -f 0x10 -v 0x015C014D -s
+sudo nvme get-feature /dev/nvme0 -f 0x10     # verify: same value = mapping confirmed
 ```
 
-HCTM temperatures are Kelvin (°C + 273). The installer probes and reports HCTM support automatically when `nvme-cli` is present.
+HCTM temperatures are Kelvin (°C + 273). Without `-s` the setting resets on power cycle. The NM7A1 ships with TMT1/TMT2 at 115°C/100°C — above its own critical-shutdown temperature, i.e. self-throttling effectively disabled. If the verification echoes the value byte-swapped (`0x014D015C`), the firmware reverses the field order — set the mirrored value instead. The installer probes and reports HCTM support automatically when `nvme-cli` is present.
 
 **Option C — remove the problem class:** swap in a DRAM-equipped SSD; HMB then no longer exists.
 
