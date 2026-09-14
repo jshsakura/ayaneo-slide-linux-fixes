@@ -14,12 +14,12 @@ This document details the root causes and technical resolutions for known hardwa
 ### Root Cause
 1. **AMI BIOS ACPI DSDT Bug**:
    The AYANEO Slide BIOS ACPI tables contain non-standard power management routines. Without strict ACPI parsing, the Linux kernel power manager attempts invalid device sleep transitions, causing a kernel deadlock upon entering or resuming `s2idle`.
-2. **Lexar NM790 / Maxio MAP1602 APST Controller Failure**:
-   The Lexar NM790 NVMe SSD uses the Maxio MAP1602 DRAM-less controller (`1d97:1602`). On Linux, this controller fails to exit deep APST PS4 power state, dropping off the PCIe bus and deadlocking root filesystem I/O.
+2. **Lexar NM790 / Maxio MAP1602 Deep APST Risk**:
+   The Lexar NM790 NVMe SSD uses the Maxio MAP1602 DRAM-less controller (`1d97:1602`). Its reported PS3 transition latency is 15 ms total, while deepest PS4 requires 53 ms. Disabling APST entirely avoids PS4 but leaves the controller active and unnecessarily hot.
 
 ### Solution
 * `acpi=strict`: Forces the kernel to enforce strict ACPI compliance, bypassing buggy OEM DSDT routines (proven fix from ChimeraOS Issue #892).
-* `nvme_core.default_ps_max_latency_us=0`: Restricts the NVMe SSD from entering deep latency sleep states, keeping the controller active.
+* `nvme_core.default_ps_max_latency_us=15000`: Allows only the 50 mW PS3 non-operational state and excludes PS4. This reduces idle controller load without limiting I/O throughput.
 
 ---
 
@@ -115,4 +115,3 @@ DCN 3.1.4 PSR power-state transitions on the eDP panel conflict with rapid APU c
 
 ### Solution
 * `amdgpu.dcdebugmask=0x10`: Completely disables Panel Self Refresh, keeping the display link continuously clocked and eliminating fabric sync floods during display mode changes.
-

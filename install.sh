@@ -88,7 +88,9 @@ REQUIRED_PARAMS=(
     "acpi=strict"
     "processor.max_cstate=1"
     "idle=nomwait"
-    "nvme_core.default_ps_max_latency_us=0"
+    # NM7A1: PS3 entry+exit latency is 15 ms; PS4 is 53 ms. This enables the
+    # 50 mW PS3 idle state while excluding the troublesome deepest PS4 state.
+    "nvme_core.default_ps_max_latency_us=15000"
     "tsc=reliable"
     "amdgpu.sg_display=0"
     "amdgpu.dcdebugmask=0x10"
@@ -109,6 +111,9 @@ if [ -f "$LIMINE_DEFAULT" ]; then
     # silently ignore it while still allocating the HMB, so strip it to avoid
     # false confidence that HMB is disabled.
     sed -i -E "s/[[:space:]]*nvme_core\.max_host_mem_size_mb=0//g" "$LIMINE_DEFAULT"
+    # Replace older releases that disabled APST entirely. Keeping both values
+    # would make behavior depend on kernel command-line parsing order.
+    sed -i -E "s/[[:space:]]*nvme_core\.default_ps_max_latency_us=[^[:space:]\"]+//g" "$LIMINE_DEFAULT"
 
     for p in "${REQUIRED_PARAMS[@]}"; do
         if grep -q "$p" "$LIMINE_DEFAULT"; then
@@ -188,133 +193,49 @@ if [ -f "/sys/class/leds/ayaneo:rgb:joystick_rings/suspend_mode" ]; then
     echo -e "${GREEN}✓ Joystick LED suspend mode set to off.${NC}"
 fi
 
-# 6. NVMe write-bandwidth ceiling + thermal guard (sync flood prevention)
-# The DRAM-less NVMe hits ~72C at full-speed sustained writes (40 MB/s), which
-# is the measured Data Fabric sync-flood crash zone on this chassis. The
-# kernel-level cgroup io ceiling caps user-space disk writes independent of
-# any application; the guard tightens it further when the drive runs hot.
-echo -e "\n${BLUE}[6/6] Installing NVMe Write Ceiling & Thermal Guard...${NC}"
+# 6. NVMe shallow APST and legacy bandwidth-limit cleanup
+# The OEM NM7A1 advertises PS3 at 50 mW with 5 ms entry + 10 ms exit latency,
+# and PS4 at 2.5 mW with 8 ms entry + 45 ms exit latency. A 15000 us latency
+# ceiling therefore permits PS3 while excluding PS4. This reduces controller
+# idle load without throttling reads or writes and preserves PCIe ASPM=off for
+# platform link stability.
+echo -e "\n${BLUE}[6/6] Configuring NVMe Shallow Power Saving...${NC}"
 ROOT_DISK=$(findmnt -n -o SOURCE / | sed 's/\[.*//; s/p[0-9]\+$//')
 
-cat << 'EOF' > /usr/local/sbin/ayaneo-nvme-guard
-#!/usr/bin/env bash
-# Keeps the DRAM-less NVMe below the Data Fabric sync-flood danger zone
-# (~72C measured) by clamping app.slice disk write bandwidth via direct
-# cgroupfs io.max writes. systemd set-property is NOT used: app.slice
-# belongs to the user manager, so root-side set-property binds to nothing.
-ENGAGE_mC=74000
-RELEASE_mC=70000
-CLAMP_WBPS=8000000
-CEIL_WBPS=25000000
-STATE=ok
-TARGET_WBPS=$CEIL_WBPS
-CEIL_DISK=$(findmnt -n -o SOURCE / | sed 's/\[.*//; s/p[0-9]\+$//')
-DEV_MM=$(cat "/sys/class/block/$(basename "$CEIL_DISK")/dev")
-APP_CG=
-
-log() { logger -t ayaneo-nvme-guard "$1"; }
-nvme_temp() {
-    for h in /sys/class/hwmon/hwmon*; do
-        if [ "$(cat "$h/name" 2>/dev/null)" = "nvme" ]; then
-            cat "$h/temp1_input" 2>/dev/null && return 0
-        fi
-    done
-    return 1
-}
-set_wbps() {
-    [ -n "$APP_CG" ] && [ -w "$APP_CG/io.max" ] && [ -n "$DEV_MM" ] || return 1
-    { echo "$DEV_MM rbps=max wbps=$1 riops=max wiops=max" > "$APP_CG/io.max"; } 2>/dev/null
-}
-ensure_wbps() {
-    if [ -z "$APP_CG" ] || [ ! -e "$APP_CG/io.max" ]; then
-        APP_CG=$(ls -d /sys/fs/cgroup/user.slice/user-*.slice/user@*.service/app.slice 2>/dev/null | head -1)
-    fi
-    [ -n "$APP_CG" ] || return 1
-    if ! grep -q "^$DEV_MM .*wbps=$TARGET_WBPS\([[:space:]]\|$\)" "$APP_CG/io.max" 2>/dev/null; then
-        set_wbps "$TARGET_WBPS" || return 1
-        log "applied ${TARGET_WBPS} B/s write limit to $APP_CG"
-    fi
-}
-
-# Clear legacy caps from systemd-manager-based versions (v2/v3) and apply
-# the ceiling directly. Reads are never limited.
-for SLICE in user.slice app.slice; do
+# Remove the write limiter installed by releases prior to shallow APST.
+systemctl disable --now ayaneo-nvme-guard.service 2>/dev/null || true
+rm -f /etc/systemd/system/ayaneo-nvme-guard.service /usr/local/sbin/ayaneo-nvme-guard
+DEV_MM=$(cat "/sys/class/block/$(basename "$ROOT_DISK")/dev" 2>/dev/null || true)
+for CG in /sys/fs/cgroup/user.slice/user-*.slice/user@*.service/app.slice; do
+    [ -d "$CG" ] || continue
+    [ -n "$DEV_MM" ] && echo "$DEV_MM rbps=max wbps=max riops=max wiops=max" > "$CG/io.max" 2>/dev/null || true
+done
+for SLICE in app.slice user.slice; do
     systemctl set-property --runtime "$SLICE" "IOWriteBandwidthMax=" 2>/dev/null || true
     systemctl set-property "$SLICE" "IOWriteBandwidthMax=" 2>/dev/null || true
 done
-rm -f /etc/systemd/system.control/user.slice.d/50-IOWriteBandwidthMax.conf
 rm -f /etc/systemd/system.control/app.slice.d/50-IOWriteBandwidthMax.conf
-ensure_wbps || true
-
-log "started: device=$CEIL_DISK($DEV_MM) engage=$((ENGAGE_mC/1000))C release=$((RELEASE_mC/1000))C clamp=${CLAMP_WBPS}"
-while sleep 5; do
-    # app.slice is created by the user manager and can be recreated after a
-    # logout or gamescope restart. Verify the live cgroup on every pass.
-    ensure_wbps || true
-    t=$(nvme_temp) || continue
-    if [ "$t" -ge "$ENGAGE_mC" ] && [ "$STATE" != "hot" ]; then
-        TARGET_WBPS=$CLAMP_WBPS
-        if ensure_wbps; then
-            STATE=hot
-            log "NVMe at $((t/1000))C - app.slice write bandwidth clamped to $CLAMP_WBPS"
-        fi
-    elif [ "$t" -le "$RELEASE_mC" ] && [ "$STATE" != "ok" ]; then
-        TARGET_WBPS=$CEIL_WBPS
-        if ensure_wbps; then
-            STATE=ok
-            log "NVMe at $((t/1000))C - clamp released, ceiling back to $CEIL_WBPS"
-        fi
-    fi
-done
-EOF
-chmod 755 /usr/local/sbin/ayaneo-nvme-guard
-
-cat << 'EOF' > /etc/systemd/system/ayaneo-nvme-guard.service
-[Unit]
-Description=AYANEO Slide NVMe thermal guard (Data Fabric sync flood prevention)
-
-[Service]
-Type=simple
-ExecStart=/usr/local/sbin/ayaneo-nvme-guard
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF
+rm -f /etc/systemd/system.control/user.slice.d/50-IOWriteBandwidthMax.conf
 systemctl daemon-reload
-systemctl enable ayaneo-nvme-guard.service 2>/dev/null || true
-systemctl restart ayaneo-nvme-guard.service
-if ! systemctl is-active --quiet ayaneo-nvme-guard.service; then
-    echo -e "${RED}[ERROR] NVMe thermal guard failed to start.${NC}"
-    exit 1
-fi
-echo -e "${GREEN}✓ Thermal guard active: 25M ceiling, clamp 8M at 74C, release 70C (app.slice only, desktop exempt).${NC}"
 
-# Optional drive-level self-throttle: report HCTM (Host Controlled Thermal
-# Management, NVMe feature 0x10) support if nvme-cli is installed. HCTM lets
-# the host tell the drive to throttle itself at a chosen temperature - the
-# closest thing to a firmware-level DRAM-less thermal solution.
-if command -v nvme >/dev/null 2>&1; then
-    HCTM=$(nvme get-feature "$ROOT_DISK" -f 0x10 2>&1) || true
-    if echo "$HCTM" | grep -q "TMT1"; then
-        echo -e "${GREEN}✓ Drive supports HCTM (host-controlled self-throttle):${NC}"
-        echo "$HCTM" | grep -E "TMT1|TMT2" | sed 's/^/    /'
-    else
-        echo -e "${YELLOW}[!] Drive firmware does not expose HCTM. Kernel-level guard remains the throttle.${NC}"
-    fi
-fi
+# Apply the new latency tolerance immediately as well as on the next boot.
+# The per-controller PM QoS write makes the NVMe driver rebuild its APST table.
+echo 15000 > /sys/module/nvme_core/parameters/default_ps_max_latency_us
+for QOS in /sys/class/nvme/nvme*/power/pm_qos_latency_tolerance_us; do
+    [ -f "$QOS" ] && echo 15000 > "$QOS"
+done
+echo -e "${GREEN}✓ NVMe APST limited to shallow PS3; legacy write limits removed.${NC}"
 
 echo -e "\n${CYAN}==============================================================================${NC}"
 echo -e "${BOLD}${GREEN}  Installation Complete!  ${NC}"
 echo -e "${CYAN}==============================================================================${NC}"
 echo -e "Applied fixes:"
 echo -e "  1. ${BOLD}Power Management${NC}: HHD (Handheld Daemon) - TDP/fan/controller; steamos-manager conflict-handled"
-echo -e "  2. ${BOLD}Sleep/Wake Freeze Fix${NC}: acpi=strict & nvme_core.default_ps_max_latency_us=0"
+echo -e "  2. ${BOLD}Sleep/Wake Freeze Fix${NC}: acpi=strict & shallow-only NVMe APST (15000 us)"
 echo -e "  3. ${BOLD}Data Fabric Sync Flood (0x08000800) Fix${NC}: processor.max_cstate=1 & idle=nomwait"
 echo -e "  4. ${BOLD}iGPU / NVMe DMA & Bus Stability Fix${NC}: iommu=pt & pcie_aspm=off"
 echo -e "  5. ${BOLD}Display DCN / PSR Stability Fix${NC}: amdgpu.sg_display=0 & amdgpu.dcdebugmask=0x10"
 echo -e "  6. ${BOLD}Joystick LED Auto-Off During Sleep${NC}"
-echo -e "  7. ${BOLD}NVMe Sync Flood Prevention${NC}: 25 MB/s write ceiling & thermal guard service"
+echo -e "  7. ${BOLD}NVMe Controller Idle Load Fix${NC}: 50 mW PS3 enabled, unstable PS4 excluded, no I/O cap"
 echo -e "\n${YELLOW}Please reboot your system to apply all new kernel parameters:${NC}"
 echo -e "  ${BOLD}sudo systemctl reboot${NC}\n"

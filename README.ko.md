@@ -26,7 +26,7 @@
 | :--- | :--- | :--- |
 | **절전 모드(Sleep) 진입 후 영구 프리징**<br>*(전원 버튼으로 절전 진입 시 화면이 어두워진 채로 멈추며 버튼/화면 일체 반응 없음)* | 아야네오 슬라이드의 AMI 바이오스 ACPI DSDT 테이블에 비표준 전원 코드가 포함되어, 리눅스 커널 전원 관리자가 `s2idle` 진입 및 복귀 시 락업에 빠짐. | **`acpi=strict`**<br>커널이 제조사의 결함 있는 비표준 코드를 무시하고 엄격한 ACPI 국제 표준 규격만 따르도록 강제 (*ChimeraOS 이슈 #892 검증*). |
 | **이유 없는 갑작스러운 재부팅 / 셧다운**<br>*(메뉴 화면이나 대기 상태에서 갑자기 화면이 꺼지며 재부팅, 하드웨어 에러 `0x08000800` 기록; 배터리 사용 중 무거운 게임 로드 시 전원이 아예 꺼짐)* | ① AMD Zen 4 C3 초절전 진입 시 SoC 전압 급락 → 인피니티 패브릭 패리티 에러 → **Sync Flood** 리셋. ② **TDP 제한 없이 3D 부하가 걸리면 46Wh BMS가 과류로 즉시 차단** (전원 꺼짐, 재부팅 아님 — 배터리에서 발생). | **`processor.max_cstate=1`** & **`idle=nomwait`** + **HHD(Handheld Daemon) 필수**<br>C1으로 전압 강하 차단. HHD가 TDP/팬을 관리하며 AYANEO Slide 공식 지원. `steamos-manager`는 HHD와 충돌하므로 설치 스크립트가 자동 mask (disable만으론 Steam의 D-Bus 활성화가 뚫림). 불안정한 `scx_loader`도 비활성화. |
-| **렉사 NM790 NVMe SSD 절전 사망**<br>*(절전 모드 후 SSD가 PCIe 버스에서 분리되어 커널 패닉 및 I/O 멈춤 발생)* | MAP1602 DRAM-less 컨트롤러가 리눅스에서 딥슬립(APST PS4) 복귀 시 타임아웃을 일으켜 링크가 끊어짐. | **`nvme_core.default_ps_max_latency_us=0`**<br>NVMe SSD의 APST 대기 절전 모드를 비활성화하여 항상 안정적인 응답 대기 상태 유지. |
+| **렉사 NM790 NVMe의 높은 대기 온도와 딥슬립 불안정** | `default_ps_max_latency_us=0`은 APST를 완전히 꺼 컨트롤러를 계속 활성 상태로 둠. NM7A1의 PS3는 진입 5ms + 복귀 10ms, PS4는 진입 8ms + 복귀 45ms로 보고됨. | **`nvme_core.default_ps_max_latency_us=15000`**<br>50mW PS3까지만 허용하고 2.5mW 딥슬립 PS4는 배제. I/O 속도 제한 없이 대기 부하를 낮춤. PCIe 링크 ASPM은 기체 안정성을 위해 계속 비활성화. |
 | **터치 입력이 엉뚱한 곳에 찍힘 (이중 회전)**<br>*(터치한 위치가 아닌 회전된 위치에 입력됨)* | 물리 패널이 1080x1920 세로(Portrait) 규격이라 KWin(Plasma Wayland)이 가로 출력 회전(output transform)을 터치 좌표에 자동 적용함. 여기에 udev `LIBINPUT_CALIBRATION_MATRIX` 90도 회전 매트릭스를 얹으면 좌표가 한 번 더 회전하여 반대편에 입력됨. | **캘리브레이션 매트릭스 미적용**<br>회전 보정은 컴포지터가 자체 처리하므로 이전 `99-ayaneo-slide-touchscreen.rules`는 제거됨. |
 | **절전 중 조이스틱 RGB LED 배터리 방전**<br>*(기기가 절전 상태인데도 조이스틱 테두리 링 LED가 계속 깜빡이며 배터리를 소모함)* | 순정 펌웨어 기본값이 절전 중 점멸(`[oem] keep off`)로 되어 있음. | **`udev/99-ayaneo-slide-led-suspend.rules`**<br>절전 모드 진입 시 LED 전원을 완전히 끄는 `ATTR{suspend_mode}="off"` 규칙 적용. |
 | **클럭소스 워치독 원격 CPU 타임아웃**<br>*(커널 로그에 `Watchdog remote CPU read timed out` 경고 발생)* | 전력 상태 전환 시 TSC 클럭 타이머 드리프트 발생. | **`tsc=reliable`**<br>16스레드 전체에서 invariant TSC를 신뢰할 수 있는 클럭소스로 고정. |
@@ -34,43 +34,23 @@
 | **eDP 패널 PSR 불안정**<br>*(Steam 실행, Proton prefix 세팅 등 GPU 부하 시 간헐적 데이터 패브릭 sync flood 재부팅 발생)* | DCN 3.1.4의 eDP PSR 전력 상태 전환이 Phoenix APU에서 디스플레이 파이프라인과 Data Fabric을 불안정하게 만듦. | **`amdgpu.dcdebugmask=0x10`**<br>PSR을 비활성화하여 eDP 링크를 활성 상태로 유지, GPU 클럭 전환 시 패브릭 오류 예방. |
 | **3D / Proton 실행 시 Data Fabric Sync Flood [0x08000800]**<br>*(게임 실행이나 3D 그래픽 초기화 시 즉각적인 하드 셧다운/재부팅)* | 피닉스 APU의 통합 GPU가 그래픽 DMA 버퍼를 급격히 요청할 때 IOMMU 동적 주소 변환 페이지 테이블 워크 지연으로 데이터 패브릭 락업 발생. | **`iommu=pt`**<br>통합 장치에 대해 IOMMU를 Passthrough 모드로 설정하여 주소 변환 병목을 우회하고 메모리 컨트롤러 프리징 방지. |
 | **NVMe 대용량 I/O 및 고부하 시 PCIe 전압 강하**<br>*(스팀 고속 다운로드나 셰이더 빌드 중 기기 멈춤 또는 재부팅)* | PCIe 능동 전원 관리(ASPM)가 고속 읽기/쓰기 중간중간 저전력 모드로 전환을 시도하면서 링크 지연 및 순간 전압 강하를 유발함. | **`pcie_aspm=off`**<br>PCIe ASPM 절전 상태를 꺼서 고부하 환경에서도 PCIe 링크를 풀 스피드로 상시 유지. |
-| **디램리스 NVMe HMB 패브릭 충돌**<br>*(스팀 300Mbps 고속 다운로드 중 0x08000800 Sync Flood 재부팅, 드라이브 72°C 도달)* | 디램리스 컨트롤러가 시스템 램 32MB를 호스트 메모리 버퍼(HMB)로 쓰며 PCIe DMA를 지속하는데, 고부하·고온에서 DMA 동기화 불일치로 Data Fabric 락업 유발. | **디스크 쓰기 상한 + 온도 가드**<br>HMB는 **커널 6.9 이상에서 비활성화 불가** (`max_host_mem_size_mb` 파라미터가 업스트림에서 삭제되어 무시됨). 대신 설치 스크립트가 디스크 쓰기 대역폭을 상한 제한하고 발열 시 추가로 조임 (아래 NVMe 온도 가드 참조). 근본 해결은 DRAM 내장 SSD 교체. |
-| **NVMe 온도 가드**<br>*(백스톱: 앱 속도 제한과 무관하게 지속 쓰기가 위험 온도에 못 가게 함)* | 이 기체 실측: 풀스피드 스팀 다운로드(약 40MB/s 지속 쓰기)는 써멀패드가 있어도 드라이브를 72°C까지 올리며, 이는 Sync Flood 크래시 온도와 일치. | **`ayaneo-nvme-guard.service`**<br>사용자 세션의 `app.slice` cgroup `io.max`에 25MB/s 상한을 **직접 기록** (스팀·브라우저만 적용) — Plasma/KWin/IME가 사는 `session.slice`는 절대 제한 없음, 읽기는 항상 무제한. 가드는 **74°C 이상에서만** 8MB/s로 조이고 70°C에서 해제 — 이 드라이브는 대기 시에도 66~67°C, SLC 폴딩 중엔 72~73°C가 정상 운용대라 더 낮은 임계값은 열 이득 없이 데스크톱만 멈춤. 참고: root의 `systemctl set-property app.slice`는 사용자 매니저 소속 유닛이라 아무것도 바인딩하지 못함 — 그래서 가드가 cgroupfs에 직접 쓰고 사용자 세션이 재생성되면 상한을 계속 복구함. 상태 확인: `journalctl -t ayaneo-nvme-guard -f`. |
+| **디램리스 NVMe의 HMB 사용** | NM7A1은 자체 DRAM 대신 시스템 램을 HMB로 사용함. 이 장치는 희망값과 최소값을 모두 8192페이지로 보고하며 커널은 요청량 전부를 할당함. | **32MiB HMB 유지**<br>실측에서 HMB는 32MiB로 정상 활성화됨. RAM을 더 할당하는 설정은 컨트롤러가 요청하거나 지원하지 않으며, HMB를 끄면 주소 변환 효율만 악화됨. |
 
 ---
 
-## 🎛️ NVMe 보호 기능 튜닝
+## 🎛️ NVMe 전력 관리 방식
 
-기본 구성은 **25MB/s 상시 쓰기 상한 + 온도 가드** (74°C 이상 시 8MB/s 조임, 70°C 이하 해제)입니다. 이 기체 실측: 40MB/s 지속 쓰기는 드라이브를 72°C까지 올리고, 25MB/s는 66~68°C에 머뭅니다.
+설치기는 `nvme_core.default_ps_max_latency_us=15000`을 적용합니다. NM7A1이 보고한 전력 상태를 기준으로 15ms 한도는 50mW PS3를 정확히 포함하고, 총 전환 지연이 53ms인 PS4는 제외합니다. 사용 중에는 즉시 최대 성능 상태로 복귀하므로 다운로드와 게임 읽기 속도에는 상한이 생기지 않습니다.
 
-**참고: 제한 값이 실제로 의미하는 것**
-
-| 설정값 | 실제 속도 | 예상 NVMe 온도 | 평가 |
-|---|---|---|---|
-| 1500 KB/s | 1.5 MB/s | ~50°C | 매우 안전하지만 90GB 게임에 ~17시간 |
-| 1500 Mbps | 187 MB/s | 72°C+ | 효과 없음 — WiFi가 어차피 ~40MB/s가 최대 |
-| **15~25 MB/s** | — | **60~68°C** | 안전 구간; sync flood 온도 도달 불가 |
-
-**방법 A — 정적 상한만 사용 (데몬 없음):** 동적 가드 대신 고정 값 하나를 선호하면 (재부팅 시 풀림 — 재적용 필요):
+이전 버전의 `ayaneo-nvme-guard.service`와 `app.slice` 쓰기 제한은 설치 과정에서 자동 제거됩니다. APST와 현재 HMB 상태는 다음처럼 확인할 수 있습니다.
 
 ```bash
-sudo systemctl disable --now ayaneo-nvme-guard
-echo "259:0 rbps=max wbps=20971520 riops=max wiops=max" | sudo tee /sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/io.max
+cat /sys/module/nvme_core/parameters/default_ps_max_latency_us
+sudo nvme get-feature /dev/nvme0 -f 0x0c -H
+sudo nvme get-feature /dev/nvme0 -f 0x0d -H
 ```
 
-**방법 B — HCTM (드라이브 자가 스로틀):** NVMe 기능 0x10은 호스트가 드라이브에게 지정 온도에서 *스스로* 속도를 줄이도록 지시하는 기능 — 펌웨어 레벨 디램리스 해결에 가장 가까운 수단. 지원 여부는 펌웨어에 따라 다름:
-
-```bash
-sudo pacman -S nvme-cli
-sudo nvme get-feature /dev/nvme0 -f 0x10     # 지원 시 TMT1/TMT2 출력
-# 60°C(333K)에서 자가 스로틀, 75°C(348K) 하드스톱 — 전원 사이클에도 유지:
-sudo nvme set-feature /dev/nvme0 -f 0x10 -v 0x015C014D -s
-sudo nvme get-feature /dev/nvme0 -f 0x10     # 검증: 같은 값이면 매핑 확정
-```
-
-HCTM 온도는 켈빈(°C + 273)이며 `-s`(save) 없이 설정하면 전원이 꺼지면 리셋됩니다. NM7A1 출고값은 TMT1/TMT2가 115°C/100°C — 자체 크리티컬 셧다운 온도보다 높아 사실상 자가 스로틀 비활성 상태입니다. 검증에서 값이 바이트 스왑되어 돌아오면(`0x014D015C`) 펌웨어가 필드 순서를 반대로 쓰는 것이니 반전된 값을 설정하세요. 설치 스크립트는 `nvme-cli`가 있으면 HCTM 지원 여부를 자동 탐지해 보고합니다.
-
-**방법 C — 문제 클래스 자체 제거:** DRAM 내장 SSD로 교체 — HMB가 존재 자체를 멈춥니다.
+정상값은 각각 `15000`, `APSTE: Enabled`, `HSIZE: 8192`(32MiB)입니다.
 
 ---
 
@@ -101,7 +81,7 @@ sudo systemctl reboot
 
 ### `install.sh` 스크립트 동작 과정
 1. **안전 백업**: `/etc/default/limine`을 `/etc/default/limine.orig`로 자동 백업합니다.
-2. **커널 파라미터 주입**: `acpi=strict`, `processor.max_cstate=1`, `idle=nomwait`, `nvme_core.default_ps_max_latency_us=0`, `tsc=reliable`, `amdgpu.sg_display=0`, `amdgpu.dcdebugmask=0x10`, `iommu=pt`, `pcie_aspm=off`를 부트로더에 안전하게 추가하고 무효 파라미터(`amdgpu.gfxoff=0`)를 정리합니다.
+2. **커널 파라미터 주입**: `acpi=strict`, `processor.max_cstate=1`, `idle=nomwait`, `nvme_core.default_ps_max_latency_us=15000`, `tsc=reliable`, `amdgpu.sg_display=0`, `amdgpu.dcdebugmask=0x10`, `iommu=pt`, `pcie_aspm=off`를 부트로더에 안전하게 추가하고 무효 파라미터(`amdgpu.gfxoff=0`)를 정리합니다.
 3. **스케줄러 안정화**: 실험적이고 불안정한 BPF CPU 스케줄러(`scx_loader`)를 영구 비활성화하고 정석 EEVDF 스케줄러로 복구합니다.
 4. **하드웨어 udev 룰 등록**: 조이스틱 LED 절전 자동 소등 룰을 시스템에 등록합니다. (터치스크린 가로 보정은 컴포지터가 자체 처리하므로 룰을 별도로 설치하지 않습니다.)
 5. **부트로더 갱신**: `limine-update`를 실행하여 새로운 커널 설정과 initramfs를 빌드합니다.
@@ -171,7 +151,7 @@ curl -sSL https://raw.githubusercontent.com/jshsakura/steamdeck/main/install.sh 
 ```bash
 # 1. 커널 부팅 파라미터 확인
 cat /proc/cmdline
-# 확인: acpi=strict, processor.max_cstate=1, idle=nomwait, nvme_core.default_ps_max_latency_us=0 포함 여부
+# 확인: acpi=strict, processor.max_cstate=1, idle=nomwait, nvme_core.default_ps_max_latency_us=15000 포함 여부
 
 # 2. C-state 전압 강하 차단 확인 (C2/C3가 사라지고 POLL과 C1만 존재해야 함)
 ls /sys/devices/system/cpu/cpu0/cpuidle/
@@ -179,7 +159,7 @@ ls /sys/devices/system/cpu/cpu0/cpuidle/
 
 # 3. 렉사 SSD 절전 파라미터 확인
 cat /sys/module/nvme_core/parameters/default_ps_max_latency_us
-# 출력: 0
+# 출력: 15000
 
 # 4. 조이스틱 LED 절전 설정 확인
 cat /sys/class/leds/ayaneo:rgb:joystick_rings/suspend_mode

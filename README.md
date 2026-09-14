@@ -26,7 +26,7 @@ A battle-tested, community-verified optimization suite that eliminates all chron
 | :--- | :--- | :--- |
 | **Sleep/Wake Blackout Freeze**<br>*(Device goes to sleep via power button, screen stays black/dim, never wakes up)* | AMI BIOS ACPI DSDT implementation contains non-standard OEM power routines that cause Linux kernel power manager lockup during `s2idle`. | **`acpi=strict`**<br>Enforces strict ACPI compliance, bypassing buggy OEM routines (*proven fix from ChimeraOS Issue #892*). |
 | **Spontaneous Hard Resets / Sync Flood**<br>*(Sudden instant reboot during idle or menu, reset reason `[0x08000800]`; on battery, heavy 3D game load cuts power off entirely)* | ① Zen 4 C3 deep idle states cause transient voltage droops - on wake, an uncorrectable interconnect parity error triggers AMD Data Fabric Sync Flood. ② **Without TDP limits, 3D transients trip the 46Wh BMS into instant hard power-off** (power cut, not a reboot; happens on battery). | **`processor.max_cstate=1`** & **`idle=nomwait`** + **HHD (Handheld Daemon) required**<br>Restricts idle transitions to stable C1. HHD provides TDP/fan management with official AYANEO Slide support; the installer auto-installs it and masks the conflicting `steamos-manager` (plain disable is bypassed by Steam's D-Bus activation). Also disables unstable BPF schedulers (`scx_loader`). |
-| **Lexar NM790 NVMe Sleep Death**<br>*(SSD disappears from PCIe bus after sleep, causing unrecoverable kernel deadlock)* | Maxio MAP1602 controller fails to resume from deep APST PS4 latency power states on Linux. | **`nvme_core.default_ps_max_latency_us=0`**<br>Restricts NVMe autonomous power-state transitions (APST) to non-operational zero latency. |
+| **Lexar NM790 high idle temperature and deep-sleep instability** | `default_ps_max_latency_us=0` disables APST entirely and keeps the controller active. The NM7A1 reports 5 ms entry + 10 ms exit for PS3, and 8 ms entry + 45 ms exit for PS4. | **`nvme_core.default_ps_max_latency_us=15000`**<br>Allows the 50 mW PS3 state while excluding the deepest 2.5 mW PS4 state. This lowers idle load without an I/O speed cap. PCIe link ASPM remains disabled for platform stability. |
 | **Touchscreen Registers in Wrong Places (Double Rotation)**<br>*(Touches land in rotated/mirrored positions instead of where you tapped)* | The native panel is portrait (`1080x1920`); KWin (Plasma Wayland) already applies the 90-degree output transform to touch coordinates. An additional udev `LIBINPUT_CALIBRATION_MATRIX` rotates them a second time, landing touches off-target. | **No calibration matrix**<br>Compositors handle the rotation natively, so the old `99-ayaneo-slide-touchscreen.rules` was removed. |
 | **Sleep Battery Drain via Joystick LEDs**<br>*(RGB joystick rings stay on or flash continuously while device is in sleep mode)* | OEM firmware defaults to active blinking during suspend (`[oem] keep off`). | **`udev/99-ayaneo-slide-led-suspend.rules`**<br>Sets `ATTR{suspend_mode}="off"`, automatically cutting power to ring LEDs during sleep. |
 | **Clocksource Watchdog Timeouts**<br>*(Kernel logs `Watchdog remote CPU read timed out` on core frequency changes)* | Variable TSC frequency shifts during APU governor changes. | **`tsc=reliable`**<br>Marks invariant TSC as a reliable clocksource across all 16 APU threads. |
@@ -34,43 +34,23 @@ A battle-tested, community-verified optimization suite that eliminates all chron
 | **eDP Panel Self Refresh (PSR) Instability**<br>*(Intermittent data fabric sync flood resets under GPU load — e.g. Steam launch or Proton prefix setup)* | DCN 3.1.4 PSR power-state transitions on the eDP panel destabilize the display pipeline and the Data Fabric on Phoenix APUs. | **`amdgpu.dcdebugmask=0x10`**<br>Disables PSR, keeping the eDP link active to avoid fabric-level faults during GPU clock transitions. |
 | **3D / Proton Launch Fabric Sync Flood**<br>*(Hard reboot with reset reason `[0x08000800]` when Proton/Vulkan initializes 3D graphics)* | IOMMU dynamic DMA address translation table walks introduce stalls on APU unified memory interconnect under burst graphics memory requests. | **`iommu=pt`**<br>Sets IOMMU to Passthrough mode for integrated APU DMA, bypassing address translation overhead and memory controller stalls. |
 | **PCIe Link Voltage / Latency Droop Under Load**<br>*(Sudden resets or device drops during sustained disk I/O or power transitions)* | PCIe Active State Power Management (ASPM) causes link latency and voltage fluctuations on DRAM-less NVMe controllers and internal bridges. | **`pcie_aspm=off`**<br>Disables PCIe ASPM power saving states, ensuring continuous high-speed signal integrity under load. |
-| **DRAM-less NVMe HMB Fabric Lockup**<br>*(Hard reboot with `0x08000800` during sustained 300 Mbps Steam downloads; drive reaches ~72°C)* | The DRAM-less controller uses a 32MB Host Memory Buffer (HMB) via continuous PCIe DMA into system RAM; under sustained write load and heat, DMA desync trips the Data Fabric. | **Sustained-write ceiling + thermal guard**<br>HMB **cannot be disabled on kernel ≥ 6.9** (`max_host_mem_size_mb` was removed upstream and is silently ignored). The installer instead caps disk write bandwidth and clamps it further when the drive heats up (see NVMe Thermal Guard below). Swapping in a DRAM-equipped SSD removes HMB entirely. |
-| **NVMe Thermal Guard**<br>*(Backstop: keeps sustained writes away from the crash zone even at unlimited app speeds)* | Measured on this chassis: full-speed Steam downloads (~40 MB/s sustained writes) drive the drive to ~72°C even with a thermal pad, matching the sync-flood crash temperature. | **`ayaneo-nvme-guard.service`**<br>Writes the 25 MB/s ceiling directly to the user session's `app.slice` cgroup `io.max` (Steam, browsers); Plasma/KWin/IME live in `session.slice` and are never capped, and reads are always unlimited. Guard clamps to 8 MB/s only at ≥74°C and releases at ≤70°C — this drive idles at 66–67°C and runs 72–73°C during post-download SLC folding, so lower thresholds stall the desktop with dirty-page backpressure for no thermal gain. Note: `systemctl set-property app.slice` from root binds to nothing (app.slice belongs to the user manager) — that's why the guard writes cgroupfs directly and continuously restores the ceiling if the user session is recreated. Check status: `journalctl -t ayaneo-nvme-guard -f`. |
+| **DRAM-less NVMe HMB use** | The NM7A1 uses host RAM for its mapping cache. It reports both its preferred and minimum HMB size as 8192 pages, and Linux allocates the full request. | **Keep the 32 MiB HMB enabled**<br>Live inspection confirms that all 32 MiB are active. The controller does not request or advertise a larger buffer, and disabling HMB would make address mapping less efficient. |
 
 ---
 
-## 🎛️ Tuning the NVMe Protection
+## 🎛️ NVMe Power Management
 
-The default setup is a **25 MB/s persistent write ceiling + thermal guard** (clamps to 8 MB/s at ≥74°C, releases at ≤70°C). Measured on this chassis: sustained 40 MB/s writes drive the drive to ~72°C; 25 MB/s stays around 66–68°C.
+The installer sets `nvme_core.default_ps_max_latency_us=15000`. From the NM7A1's own power-state descriptors, that 15 ms ceiling includes its 50 mW PS3 state exactly and excludes PS4, whose total transition latency is 53 ms. Active I/O returns immediately to an operational state, so downloads and game reads have no bandwidth ceiling.
 
-**Reference: what a limit value actually means**
-
-| You set | Actual speed | Expected NVMe temp | Verdict |
-|---|---|---|---|
-| 1500 KB/s | 1.5 MB/s | ~50°C | Very safe, but a 90 GB game takes ~17 h |
-| 1500 Mbps | 187 MB/s | 72°C+ | No effect — Wi-Fi tops out ~40 MB/s anyway |
-| **15–25 MB/s** | — | **60–68°C** | Safe zone; cannot reach the sync-flood temperature |
-
-**Option A — static cap only (no daemon):** if you prefer one fixed number over the dynamic guard (non-persistent; re-apply after reboot, or let the installer's guard handle it):
+The installer removes the legacy `ayaneo-nvme-guard.service` and any `app.slice` write cap. Check APST and HMB state with:
 
 ```bash
-sudo systemctl disable --now ayaneo-nvme-guard
-echo "259:0 rbps=max wbps=20971520 riops=max wiops=max" | sudo tee /sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/io.max
+cat /sys/module/nvme_core/parameters/default_ps_max_latency_us
+sudo nvme get-feature /dev/nvme0 -f 0x0c -H
+sudo nvme get-feature /dev/nvme0 -f 0x0d -H
 ```
 
-**Option B — HCTM (drive-level self-throttle):** NVMe feature 0x10 lets the host tell the drive to slow *itself* at a chosen temperature — the closest thing to a firmware-level DRAM-less solution. Support depends on drive firmware:
-
-```bash
-sudo pacman -S nvme-cli
-sudo nvme get-feature /dev/nvme0 -f 0x10     # prints TMT1/TMT2 if supported
-# To self-throttle at 60°C (333K), hard-stop 75°C (348K) — saved across power cycles:
-sudo nvme set-feature /dev/nvme0 -f 0x10 -v 0x015C014D -s
-sudo nvme get-feature /dev/nvme0 -f 0x10     # verify: same value = mapping confirmed
-```
-
-HCTM temperatures are Kelvin (°C + 273). Without `-s` the setting resets on power cycle. The NM7A1 ships with TMT1/TMT2 at 115°C/100°C — above its own critical-shutdown temperature, i.e. self-throttling effectively disabled. If the verification echoes the value byte-swapped (`0x014D015C`), the firmware reverses the field order — set the mirrored value instead. The installer probes and reports HCTM support automatically when `nvme-cli` is present.
-
-**Option C — remove the problem class:** swap in a DRAM-equipped SSD; HMB then no longer exists.
+Expected values are `15000`, `APSTE: Enabled`, and `HSIZE: 8192` (32 MiB).
 
 ---
 
@@ -101,7 +81,7 @@ sudo systemctl reboot
 
 ### What `install.sh` Does:
 1. **Safety Backup**: Backs up `/etc/default/limine` to `/etc/default/limine.orig`.
-2. **Kernel Parameters**: Appends `acpi=strict`, `processor.max_cstate=1`, `idle=nomwait`, `nvme_core.default_ps_max_latency_us=0`, `tsc=reliable`, `amdgpu.sg_display=0`, `amdgpu.dcdebugmask=0x10`, `iommu=pt`, and `pcie_aspm=off` to your bootloader. Cleans obsolete/invalid parameters (`amdgpu.gfxoff=0`).
+2. **Kernel Parameters**: Appends `acpi=strict`, `processor.max_cstate=1`, `idle=nomwait`, `nvme_core.default_ps_max_latency_us=15000`, `tsc=reliable`, `amdgpu.sg_display=0`, `amdgpu.dcdebugmask=0x10`, `iommu=pt`, and `pcie_aspm=off` to your bootloader. Cleans obsolete/invalid parameters (`amdgpu.gfxoff=0`).
 3. **Scheduler Stabilization**: Permanently disables experimental BPF schedulers (`scx_loader`) in favor of upstream Linux EEVDF.
 4. **Hardware Udev Rules**: Installs the joystick LED suspend auto-off rule. (Touchscreen landscape rotation is handled natively by the compositor, so no calibration rule is installed.)
 5. **Bootloader Rebuild**: Automatically executes `limine-update` to regenerate boot configs and initramfs.
@@ -153,7 +133,7 @@ To verify that all fixes are active on your running system:
 ```bash
 # 1. Verify kernel parameters
 cat /proc/cmdline
-# Expected: ... acpi=strict processor.max_cstate=1 idle=nomwait nvme_core.default_ps_max_latency_us=0 tsc=reliable
+# Expected: ... acpi=strict processor.max_cstate=1 idle=nomwait nvme_core.default_ps_max_latency_us=15000 tsc=reliable
 
 # 2. Verify C-state limitation (only POLL and C1 should be active)
 ls /sys/devices/system/cpu/cpu0/cpuidle/
@@ -161,7 +141,7 @@ ls /sys/devices/system/cpu/cpu0/cpuidle/
 
 # 3. Verify NVMe power latency
 cat /sys/module/nvme_core/parameters/default_ps_max_latency_us
-# Expected: 0
+# Expected: 15000
 
 # 4. Verify LED suspend mode
 cat /sys/class/leds/ayaneo:rgb:joystick_rings/suspend_mode
