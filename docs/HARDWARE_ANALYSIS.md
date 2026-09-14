@@ -1,117 +1,102 @@
-# AYANEO Slide Linux Hardware Analysis & Chronic Bug Root Causes
+# AYANEO Slide Linux Hardware Observations and Mitigations
 
-This document details the root causes and technical resolutions for known hardware issues encountered on the **AYANEO Slide** (AMD Ryzen 7 7840U Phoenix APU, Lexar NM790 / Maxio MAP1602 DRAM-less NVMe SSD).
+This document records the hardware data and logs observed on the test device. It separates measured facts from conservative mitigations; a reset code alone is not treated as proof of a root cause.
 
----
+## Test device
 
-## 1. Sleep/Wake Freeze (Blackout on `s2idle` Suspend)
+- AYANEO Slide, AMD Ryzen 7 7840U / Radeon 780M
+- 24 GiB LPDDR5X, UMA frame buffer set to 6 GiB
+- Lexar SSD NM7A1 2TB, firmware 9742, Maxio MAP1602 (`1d97`), DRAM-less
+- CachyOS Deckify, Linux `7.2.3-1-cachyos-deckify`
+- HHD active at 12 W with boost disabled
 
-### Symptoms
-* Pressing the power button enters suspend (`PM: suspend entry (s2idle)`).
-* The screen turns black or dimmed, but the device never wakes up from suspend.
-* Power button and gamepad buttons are unresponsive, forcing a hard reset.
+## NVMe controller power and temperature
 
-### Root Cause
-1. **AMI BIOS ACPI DSDT Bug**:
-   The AYANEO Slide BIOS ACPI tables contain non-standard power management routines. Without strict ACPI parsing, the Linux kernel power manager attempts invalid device sleep transitions, causing a kernel deadlock upon entering or resuming `s2idle`.
-2. **Lexar NM790 / Maxio MAP1602 Deep APST Risk**:
-   The Lexar NM790 NVMe SSD uses the Maxio MAP1602 DRAM-less controller (`1d97:1602`). Its reported PS3 transition latency is 15 ms total, while deepest PS4 requires 53 ms. Disabling APST entirely avoids PS4 but leaves the controller active and unnecessarily hot.
+`nvme id ctrl -H` reports five power states for the NM7A1:
 
-### Solution
-* `acpi=strict`: Forces the kernel to enforce strict ACPI compliance, bypassing buggy OEM DSDT routines (proven fix from ChimeraOS Issue #892).
-* `nvme_core.default_ps_max_latency_us=15000`: Allows only the 50 mW PS3 non-operational state and excludes PS4. This reduces idle controller load without limiting I/O throughput.
+| State | Type | Maximum power | Entry | Exit | Total latency |
+|---|---|---:|---:|---:|---:|
+| PS0 | operational | 6.50 W | 0 | 0 | 0 |
+| PS1 | operational | 5.80 W | 0 | 0 | 0 |
+| PS2 | operational | 3.60 W | 0 | 0 | 0 |
+| PS3 | non-operational | 50 mW | 5 ms | 10 ms | 15 ms |
+| PS4 | non-operational | 2.5 mW | 8 ms | 45 ms | 53 ms |
 
----
+The old setting `nvme_core.default_ps_max_latency_us=0` was added as an emergency workaround for the drive failing to return after system suspend. It prevented the suspected deep PS4 resume path by disabling APST completely. Live NVMe feature data confirmed `APSTE: Disabled`, which also prevented the lower-latency PS3 state even when host I/O stopped. Together with `pcie_aspm=off`, this explained why the controller stayed warm while the desktop appeared idle.
 
-## 2. Spontaneous Sudden Reboots & Data Fabric Sync Flood (`0x08000800`)
+The current setting is:
 
-### Symptoms
-* Device suddenly resets and reboots while idle, in the Steam menu, or shortly after booting.
-* Kernel log after reboot reports:
-  ```text
-  x86/amd: Previous system reset reason [0x08000800]: an uncorrected error caused a data fabric sync flood event
-  clocksource: Watchdog remote CPU read timed out
-  ```
+```text
+nvme_core.default_ps_max_latency_us=15000
+```
 
-### Root Cause
-1. **Zen 4 Low-Power C-State Voltage Droop**:
-   When CPU cores drop into deep C-states (C2/C3) during low load or idle, the SoC and core voltages drop. Upon waking, transient voltage droop across the power delivery circuitry causes an uncorrectable communication error in the AMD Infinity Fabric (Data Fabric). The CPU die hardware asserts an emergency **Sync Flood (0x08000800)** to prevent memory corruption.
-2. **Unstable BPF CPU Schedulers (`scx_lavd`)**:
-   Experimental schedulers stall remote CPU cores during idle power transitions, accelerating watchdog timeouts and fabric sync floods.
+Linux now programs a 100 ms idle timeout to PS3 and leaves the PS4 entries unused. This retains the original workaround's essential property—never entering PS4—without forcing the controller to stay operational. The PCIe link itself remains in the conservative `pcie_aspm=off` configuration.
 
-### Solution
-* `processor.max_cstate=1` + `idle=nomwait`: Limits CPU idle states to C1, preventing the voltage from dropping into the unstable C2/C3 droop threshold.
-* Disable `scx_loader.service`: Reverts to the stable upstream Linux EEVDF scheduler.
-* `tsc=reliable`: Prevents clocksource watchdog timeouts.
+Measured snapshots on 2026-09-15:
 
----
+| Configuration | Controller / Composite | NAND Sensor 2 | Application write cap |
+|---|---:|---:|---:|
+| APST disabled | 68–72°C | 50–55°C | 25 MB/s legacy cap |
+| 15 ms APST bound, after reboot | 64–65°C | 52°C | none |
 
-## 3. Gamepad Device Hiding & InputPlumber Architecture
+These are snapshots, not a controlled thermal benchmark. Ambient temperature and recent writes matter. A DRAM-less drive can continue SLC folding and garbage collection after host write traffic falls, so temperature may lag behind the visible workload.
 
-### Architecture
-* Physical Controller: ZhiXu Controller (`045e:028e`) on internal USB bus (`1-3`).
-* InputPlumber intercepts the raw controller and sets mode `0000` (`c---------`) via udev rules to **hide** the raw device from games, preventing double-input bugs.
-* InputPlumber creates a virtual Steam Deck controller (`deck-uhid`, `28de:12f0`), which Steam picks up via `hidraw` and maps cleanly to `configset_controller_steamos_handheld`.
+## Host Memory Buffer
 
----
+The controller reports `hmpre=8192` and `hmmin=8192`, and Linux allocates `32 MiB host memory buffer (8 segments)`. NVMe feature `0x0d` reports HMB enabled with `HSIZE: 8192`.
 
-## 4. DCN 3.1.4 HUBBUB Lockup on Multi-Display / Docking
+The full controller-requested HMB is already assigned. The device does not advertise a larger preferred buffer, and adding arbitrary system RAM would not make the controller use it. HMB is a mapping cache; it does not replace the controller's internal execution resources or solve active-state power use.
 
-### Symptoms
-* Kernel warnings upon connecting USB-C docks or external 4K displays:
-  ```text
-  amdgpu 0000:c4:00.0: [drm] REG_WAIT timeout 1us * 100 tries - dcn31_program_compbuf_size line:141
-  WARNING: at dcn31_hubbub.c:151 at dcn31_program_compbuf_size [amdgpu]
-  ```
-* Sudden hard reset (`[0x08000800] Data Fabric Sync Flood`) triggered when Steam, Gamescope, or 3D Vulkan applications launch with external displays connected.
+## I/O limiting
 
-### Root Cause
-1. **DCN 3.1.4 HUBBUB Scatter-Gather Allocation**:
-   When external docks or 4K monitors (`DP-2`) are plugged in alongside the internal portrait screen (`eDP-1`), KWin Wayland triggers display bandwidth optimization (`dcn20_optimize_bandwidth`). The DCN 3.1.4 HUBBUB compression buffer controller attempts to dynamically resize memory segments over non-contiguous Scatter-Gather (SG) system RAM buffers and hits a register timeout (`REG_WAIT timeout`). This leaves the memory arbiter on the Data Fabric in an unstable deadlock state, causing an emergency Sync Flood reset when heavy graphics contexts (Steam) request VRAM buffers.
+The previous installer wrote a 25 MB/s limit to the user session's `app.slice`. That reduced sustained write heat but did not address idle controller power, read-heavy games, or internal maintenance. It also slowed legitimate downloads.
 
-### Solution
-* `amdgpu.sg_display=0`: Disables Scatter-Gather display buffer allocations on the APU, forcing contiguous dedicated VRAM for display buffers and completely eliminating HUBBUB compression buffer register timeouts.
+The current installer removes `ayaneo-nvme-guard.service`, clears legacy cgroup limits, and does not install another bandwidth throttle. The current `app.slice/io.max` is empty.
 
----
+## Reset evidence and power management
 
-## 5. 3D / Proton Launch Data Fabric Sync Flood & IOMMU Overhead
+Two Space Marine 2 sessions ended after several minutes with an abrupt journal boundary and no clean game exit, orderly shutdown, OOM kill, amdgpu reset, NVMe timeout, or media error. HHD was not installed during those failures and UMA was 512 MiB.
 
-### Symptoms
-* Launching a 3D game (Vulkan/Proton) immediately causes an instant hard reboot.
-* Previous reset reason is recorded as:
-  ```text
-  x86/amd: Previous system reset reason [0x08000800]: an uncorrected error caused a data fabric sync flood event
-  ```
+The next boot reported `[0x00080800]: software wrote 0x6 to reset control register 0xCF9`. The same value can appear after an ordinary software reboot, so it does not prove a Data Fabric Sync Flood. Claims that the observed value was `0x08000800` were removed from this repository.
 
-### Root Cause
-On AMD Phoenix APUs (Ryzen 7 7840U / 8840U), the CPU and Radeon 780M iGPU share a unified memory controller over the AMD Infinity Fabric. When 3D engines initialize and allocate large VRAM slabs via DMA, the kernel's default dynamic IOMMU DMA translation table walk generates micro-stalls and bus contention on the Data Fabric. Under burst load, these stalls escalate into an uncorrectable fabric timeout.
+The installed mitigations remain conservative:
 
-### Solution
-* `iommu=pt`: Sets IOMMU to Passthrough mode for integrated APU DMA devices. This eliminates address translation overhead and translation table walk stalls, allowing direct zero-latency DMA between the iGPU and unified RAM.
+- HHD is the sole TDP/fan/controller manager; `steamos-manager` is masked while HHD is active.
+- HHD is configured to 12 W with boost disabled on the test device.
+- `processor.max_cstate=1` and `idle=nomwait` avoid deep CPU idle transitions.
+- `scx_loader` is disabled in favor of the kernel's standard scheduler.
+- `tsc=reliable` avoids clocksource watchdog switching on this configuration.
 
----
+These settings reduce variables and power transients. They do not turn the reset record into proof of one hardware failure mode.
 
-## 6. PCIe Power State Transition Droop on NVMe & Root Complex
+## GPU, display, and PCIe mitigations
 
-### Symptoms
-* Device freezes or resets under sustained heavy NVMe disk writes (such as Steam game downloads, updates, or decompression).
-* Controller timeout or ACPI power state transition errors (`[0x00200800]`).
+- `iommu=pt` reduces translation overhead for integrated devices.
+- `amdgpu.sg_display=0` avoids scatter-gather display buffers on the integrated GPU.
+- `amdgpu.dcdebugmask=0x10` disables panel self refresh on the internal eDP panel.
+- `pcie_aspm=off` keeps PCIe link-level low-power transitions disabled. NVMe APST remains independently active with the 15 ms bound.
+- GPU DPM stays on `auto`; the installer removes the old udev rule that forced `high` performance.
 
-### Root Cause
-Active State Power Management (ASPM) commands PCIe devices to enter lower power states (L0s/L1) during micro-idle intervals. The DRAM-less Lexar NM790 (Maxio MAP1602 controller) and the APU internal PCIe bridges experience significant latency and voltage droop when rapidly switching back to active L0.
+These are platform-stability mitigations. The repository does not claim that each setting independently fixes a specific reset without a reproducible A/B test.
 
-### Solution
-* `pcie_aspm=off`: Completely disables PCIe ASPM, forcing PCIe links to remain in full-power active mode (L0) at all times, preventing bus drops and voltage transients.
+## Controller stack
 
----
+HHD has device support for the AYANEO Slide and owns the physical controller, gyro, back buttons, and emulated gamepad. Running InputPlumber at the same time caused repeated `Device or resource busy` failures while both stacks tried to own controller emulation.
 
-## 7. eDP Panel Self Refresh (PSR) Instability
+The installer therefore masks `inputplumber` when HHD is active. If HHD cannot start, it keeps InputPlumber available instead of leaving the machine without a controller layer. It applies the same fallback rule to `steamos-manager` for power management.
 
-### Symptoms
-* Screen flashes white or goes black under GPU clock shifts or when switching between desktop and full-screen games.
+## Verification
 
-### Root Cause
-DCN 3.1.4 PSR power-state transitions on the eDP panel conflict with rapid APU clock scaling.
+After reboot, the expected state is:
 
-### Solution
-* `amdgpu.dcdebugmask=0x10`: Completely disables Panel Self Refresh, keeping the display link continuously clocked and eliminating fabric sync floods during display mode changes.
+```bash
+cat /proc/cmdline
+cat /sys/module/nvme_core/parameters/default_ps_max_latency_us
+cat /sys/class/nvme/nvme0/power/pm_qos_latency_tolerance_us
+sudo nvme get-feature /dev/nvme0 -f 0x0c -H
+sudo nvme get-feature /dev/nvme0 -f 0x0d -H
+systemctl is-active ayaneo-nvme-guard.service
+cat /sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/app.slice/io.max
+```
+
+The command line, module parameter, and device QoS should show `15000`; APST should be enabled with PS3 as the idle target; HMB should show `HSIZE: 8192`; the legacy guard should be inactive or absent; and `io.max` should be empty.

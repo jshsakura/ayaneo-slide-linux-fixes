@@ -36,7 +36,7 @@ if ! pgrep -f "bin/hhd" >/dev/null 2>&1 && systemctl list-unit-files 2>/dev/null
     echo "✓ inputplumber unmasked and re-enabled (HHD absent)."
 fi
 
-# Remove NVMe thermal guard and write ceiling
+# Remove migration leftovers created by installer releases before shallow APST.
 systemctl disable --now ayaneo-nvme-guard.service 2>/dev/null || true
 rm -f /etc/systemd/system/ayaneo-nvme-guard.service
 rm -f /usr/local/sbin/ayaneo-nvme-guard
@@ -51,7 +51,7 @@ done
 rm -f /etc/systemd/system.control/app.slice.d/50-IOWriteBandwidthMax.conf
 rm -f /etc/systemd/system.control/user.slice.d/50-IOWriteBandwidthMax.conf
 systemctl daemon-reload
-echo "✓ NVMe thermal guard removed and write bandwidth limits cleared."
+echo "✓ Legacy NVMe limiter artifacts removed."
 
 # Restore masked vendor service only when HHD is not providing power
 # management; unmasking while HHD runs recreates the TDP/fan conflict.

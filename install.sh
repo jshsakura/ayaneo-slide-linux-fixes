@@ -88,8 +88,9 @@ REQUIRED_PARAMS=(
     "acpi=strict"
     "processor.max_cstate=1"
     "idle=nomwait"
-    # NM7A1: PS3 entry+exit latency is 15 ms; PS4 is 53 ms. This enables the
-    # 50 mW PS3 idle state while excluding the troublesome deepest PS4 state.
+    # The old value 0 avoided suspend-resume failures by disabling all APST.
+    # NM7A1 PS3 totals 15 ms and PS4 totals 53 ms, so this restores the 50 mW
+    # PS3 state while preserving the original workaround's PS4 exclusion.
     "nvme_core.default_ps_max_latency_us=15000"
     "tsc=reliable"
     "amdgpu.sg_display=0"
@@ -193,12 +194,12 @@ if [ -f "/sys/class/leds/ayaneo:rgb:joystick_rings/suspend_mode" ]; then
     echo -e "${GREEN}✓ Joystick LED suspend mode set to off.${NC}"
 fi
 
-# 6. NVMe shallow APST and legacy bandwidth-limit cleanup
+# 6. NVMe latency-bounded APST and legacy bandwidth-limit cleanup
 # The OEM NM7A1 advertises PS3 at 50 mW with 5 ms entry + 10 ms exit latency,
 # and PS4 at 2.5 mW with 8 ms entry + 45 ms exit latency. A 15000 us latency
-# ceiling therefore permits PS3 while excluding PS4. This reduces controller
-# idle load without throttling reads or writes and preserves PCIe ASPM=off for
-# platform link stability.
+# ceiling therefore permits PS3 while excluding PS4 on that drive. Other NVMe
+# models select whichever state fits the same latency bound. This reduces idle
+# load without throttling I/O and preserves PCIe ASPM=off for link stability.
 echo -e "\n${BLUE}[6/6] Configuring NVMe Shallow Power Saving...${NC}"
 ROOT_DISK=$(findmnt -n -o SOURCE / | sed 's/\[.*//; s/p[0-9]\+$//')
 
@@ -224,7 +225,7 @@ echo 15000 > /sys/module/nvme_core/parameters/default_ps_max_latency_us
 for QOS in /sys/class/nvme/nvme*/power/pm_qos_latency_tolerance_us; do
     [ -f "$QOS" ] && echo 15000 > "$QOS"
 done
-echo -e "${GREEN}✓ NVMe APST limited to shallow PS3; legacy write limits removed.${NC}"
+echo -e "${GREEN}✓ NVMe APST limited to 15000 us; legacy write limits removed.${NC}"
 
 echo -e "\n${CYAN}==============================================================================${NC}"
 echo -e "${BOLD}${GREEN}  Installation Complete!  ${NC}"
@@ -232,10 +233,10 @@ echo -e "${CYAN}================================================================
 echo -e "Applied fixes:"
 echo -e "  1. ${BOLD}Power Management${NC}: HHD (Handheld Daemon) - TDP/fan/controller; steamos-manager conflict-handled"
 echo -e "  2. ${BOLD}Sleep/Wake Freeze Fix${NC}: acpi=strict & shallow-only NVMe APST (15000 us)"
-echo -e "  3. ${BOLD}Data Fabric Sync Flood (0x08000800) Fix${NC}: processor.max_cstate=1 & idle=nomwait"
-echo -e "  4. ${BOLD}iGPU / NVMe DMA & Bus Stability Fix${NC}: iommu=pt & pcie_aspm=off"
+echo -e "  3. ${BOLD}CPU Idle-State Stability${NC}: processor.max_cstate=1 & idle=nomwait"
+echo -e "  4. ${BOLD}iGPU / PCIe Stability${NC}: iommu=pt & pcie_aspm=off"
 echo -e "  5. ${BOLD}Display DCN / PSR Stability Fix${NC}: amdgpu.sg_display=0 & amdgpu.dcdebugmask=0x10"
 echo -e "  6. ${BOLD}Joystick LED Auto-Off During Sleep${NC}"
-echo -e "  7. ${BOLD}NVMe Controller Idle Load Fix${NC}: 50 mW PS3 enabled, unstable PS4 excluded, no I/O cap"
+echo -e "  7. ${BOLD}NVMe Controller Idle Load Fix${NC}: 15000 us APST ceiling, no I/O cap"
 echo -e "\n${YELLOW}Please reboot your system to apply all new kernel parameters:${NC}"
 echo -e "  ${BOLD}sudo systemctl reboot${NC}\n"

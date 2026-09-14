@@ -7,14 +7,22 @@
 
 > **[English]** | [🇰🇷 **한국어 설명서 (README.ko.md)**](README.ko.md)
 
-A battle-tested, community-verified optimization suite that eliminates all chronic hardware bugs, sleep/wake deadlocks, and spontaneous reboots on the **AYANEO Slide** (and its twin, the **Antec Core HS**), powered by the AMD Ryzen 7 7840U / 8840U Phoenix APU.
+A device-specific installer for the **AYANEO Slide** and **Antec Core HS** that applies power-management, controller-conflict, and NVMe idle-temperature mitigations verified on the Ryzen 7 7840U / 8840U platform.
+
+## Why I Built This
+
+Every time I tested another Linux distribution on my AYANEO Slide, I had to hunt down the same kernel options and service-conflict fixes again. Changing distributions should not have meant rediscovering the suspend, controller, TDP, display, and NVMe setup from scratch, so I created this project to keep that work in one reproducible place.
+
+This is not a collection of untested settings copied from the internet. I apply the changes to my **physical AYANEO Slide** and compare boot logs, service state, game launches, download load, SSD power states, and temperatures. The repository packages those results into an installer with a rollback path. When evidence from the device contradicts an earlier explanation, I update both the configuration and the documentation.
+
+> **Why the NVMe setting changed:** `nvme_core.default_ps_max_latency_us=0` was originally an emergency workaround for the Lexar NM7A1 failing to wake after suspend. It disabled all APST states, blocking both the problematic PS4 state and the usable PS3 state. The controller therefore remained operational at idle and measured 68–72°C. The current `15000` setting **continues to exclude PS4 while restoring the 50 mW PS3 state**.
 
 ---
 
 ## 🎯 Target Devices & Environment
 
 * **Hardware**: AYANEO Slide, Antec Core HS (AMD Ryzen 7 7840U / 8840U, Radeon 780M iGPU, 16GB / 24GB / 32GB LPDDR5X)
-* **Storage**: Compatible with all NVMe drives, including the OEM **Lexar NM7A1 (DRAM-less, Host Memory Buffer)**
+* **Storage**: Verified with the OEM Lexar NM7A1 2TB (firmware 9742, Maxio MAP1602, DRAM-less/HMB). Other drives select their own power state within the same 15 ms latency bound
 * **Supported Distros**: CachyOS (Handheld Edition), Arch Linux, Bazzite, ChimeraOS, SteamOS (SteamFork)
 * **Bootloaders**: Limine (default on CachyOS Deckify), GRUB, systemd-boot
 
@@ -25,14 +33,14 @@ A battle-tested, community-verified optimization suite that eliminates all chron
 | Issue / Symptom | Root Cause | Solution Applied |
 | :--- | :--- | :--- |
 | **Sleep/Wake Blackout Freeze**<br>*(Device goes to sleep via power button, screen stays black/dim, never wakes up)* | AMI BIOS ACPI DSDT implementation contains non-standard OEM power routines that cause Linux kernel power manager lockup during `s2idle`. | **`acpi=strict`**<br>Enforces strict ACPI compliance, bypassing buggy OEM routines (*proven fix from ChimeraOS Issue #892*). |
-| **Spontaneous Hard Resets / Sync Flood**<br>*(Sudden instant reboot during idle or menu, reset reason `[0x08000800]`; on battery, heavy 3D game load cuts power off entirely)* | ① Zen 4 C3 deep idle states cause transient voltage droops - on wake, an uncorrectable interconnect parity error triggers AMD Data Fabric Sync Flood. ② **Without TDP limits, 3D transients trip the 46Wh BMS into instant hard power-off** (power cut, not a reboot; happens on battery). | **`processor.max_cstate=1`** & **`idle=nomwait`** + **HHD (Handheld Daemon) required**<br>Restricts idle transitions to stable C1. HHD provides TDP/fan management with official AYANEO Slide support; the installer auto-installs it and masks the conflicting `steamos-manager` (plain disable is bypassed by Steam's D-Bus activation). Also disables unstable BPF schedulers (`scx_loader`). |
-| **Lexar NM790 high idle temperature and deep-sleep instability** | `default_ps_max_latency_us=0` disables APST entirely and keeps the controller active. The NM7A1 reports 5 ms entry + 10 ms exit for PS3, and 8 ms entry + 45 ms exit for PS4. | **`nvme_core.default_ps_max_latency_us=15000`**<br>Allows the 50 mW PS3 state while excluding the deepest 2.5 mW PS4 state. This lowers idle load without an I/O speed cap. PCIe link ASPM remains disabled for platform stability. |
+| **Sudden resets / shutdowns** | Affected sessions ended without a clean shutdown, OOM, or NVMe error. The following boot reported `0x00080800`, which records a CF9 software reset and does not identify the root cause by itself. HHD was absent and UMA was 512 MiB during those failures. | **HHD at 12 W with boost off + `processor.max_cstate=1` + `idle=nomwait`**<br>Keeps a single power manager active and avoids deep CPU idle transitions. UMA is set to 6 GiB on the tested device to separate game VRAM exhaustion from platform resets. |
+| **Lexar NM790 suspend-resume failure and high idle temperature** | The original `default_ps_max_latency_us=0` workaround for resume failures disabled APST entirely and kept the controller active. The NM7A1 reports 5 ms entry + 10 ms exit for PS3, and 8 ms entry + 45 ms exit for PS4. | **`nvme_core.default_ps_max_latency_us=15000`**<br>Continues to exclude deep PS4 while allowing the 50 mW PS3 state. This lowers idle load without an I/O speed cap. PCIe link ASPM remains disabled for platform stability. |
 | **Touchscreen Registers in Wrong Places (Double Rotation)**<br>*(Touches land in rotated/mirrored positions instead of where you tapped)* | The native panel is portrait (`1080x1920`); KWin (Plasma Wayland) already applies the 90-degree output transform to touch coordinates. An additional udev `LIBINPUT_CALIBRATION_MATRIX` rotates them a second time, landing touches off-target. | **No calibration matrix**<br>Compositors handle the rotation natively, so the old `99-ayaneo-slide-touchscreen.rules` was removed. |
 | **Sleep Battery Drain via Joystick LEDs**<br>*(RGB joystick rings stay on or flash continuously while device is in sleep mode)* | OEM firmware defaults to active blinking during suspend (`[oem] keep off`). | **`udev/99-ayaneo-slide-led-suspend.rules`**<br>Sets `ATTR{suspend_mode}="off"`, automatically cutting power to ring LEDs during sleep. |
 | **Clocksource Watchdog Timeouts**<br>*(Kernel logs `Watchdog remote CPU read timed out` on core frequency changes)* | Variable TSC frequency shifts during APU governor changes. | **`tsc=reliable`**<br>Marks invariant TSC as a reliable clocksource across all 16 APU threads. |
  | **DCN Hubbub Lockup on Dock / External Display**<br>*(Kernel warning `REG_WAIT timeout in dcn31_program_compbuf_size` when plugging in USB-C dock or changing resolution)* | DCN 3.1.4 display compression buffer arbiter locks up on the Data Fabric during Scatter-Gather DMA reallocations. | **`amdgpu.sg_display=0`**<br>Disables non-contiguous Scatter-Gather display buffer allocations on APU, using dedicated VRAM to guarantee DCHUBBUB stability. |
-| **eDP Panel Self Refresh (PSR) Instability**<br>*(Intermittent data fabric sync flood resets under GPU load — e.g. Steam launch or Proton prefix setup)* | DCN 3.1.4 PSR power-state transitions on the eDP panel destabilize the display pipeline and the Data Fabric on Phoenix APUs. | **`amdgpu.dcdebugmask=0x10`**<br>Disables PSR, keeping the eDP link active to avoid fabric-level faults during GPU clock transitions. |
-| **3D / Proton Launch Fabric Sync Flood**<br>*(Hard reboot with reset reason `[0x08000800]` when Proton/Vulkan initializes 3D graphics)* | IOMMU dynamic DMA address translation table walks introduce stalls on APU unified memory interconnect under burst graphics memory requests. | **`iommu=pt`**<br>Sets IOMMU to Passthrough mode for integrated APU DMA, bypassing address translation overhead and memory controller stalls. |
+| **eDP Panel Self Refresh instability**<br>*(Flashes or a black screen during display transitions)* | DCN 3.1.4 eDP PSR transitions can overlap GPU clock changes. | **`amdgpu.dcdebugmask=0x10`**<br>Disables PSR to reduce internal-panel link state changes. |
+| **3D / Proton launch stability** | The integrated GPU and NVMe share system-memory bandwidth, so IOMMU translation work can rise during 3D initialization. Available logs do not justify assigning the past resets to one specific hardware error. | **`iommu=pt`**<br>A conservative setting that reduces IOMMU translation overhead for integrated devices. |
 | **PCIe Link Voltage / Latency Droop Under Load**<br>*(Sudden resets or device drops during sustained disk I/O or power transitions)* | PCIe Active State Power Management (ASPM) causes link latency and voltage fluctuations on DRAM-less NVMe controllers and internal bridges. | **`pcie_aspm=off`**<br>Disables PCIe ASPM power saving states, ensuring continuous high-speed signal integrity under load. |
 | **DRAM-less NVMe HMB use** | The NM7A1 uses host RAM for its mapping cache. It reports both its preferred and minimum HMB size as 8192 pages, and Linux allocates the full request. | **Keep the 32 MiB HMB enabled**<br>Live inspection confirms that all 32 MiB are active. The controller does not request or advertise a larger buffer, and disabling HMB would make address mapping less efficient. |
 
@@ -40,7 +48,7 @@ A battle-tested, community-verified optimization suite that eliminates all chron
 
 ## 🎛️ NVMe Power Management
 
-The installer sets `nvme_core.default_ps_max_latency_us=15000`. From the NM7A1's own power-state descriptors, that 15 ms ceiling includes its 50 mW PS3 state exactly and excludes PS4, whose total transition latency is 53 ms. Active I/O returns immediately to an operational state, so downloads and game reads have no bandwidth ceiling.
+The installer sets `nvme_core.default_ps_max_latency_us=15000`. From the NM7A1's own power-state descriptors, that 15 ms ceiling includes its 50 mW PS3 state exactly and excludes PS4, whose total transition latency is 53 ms. It enters PS3 after 100 ms without I/O and returns to an operational state when I/O starts, so downloads and game reads have no bandwidth ceiling. `pcie_aspm=off` remains in place for platform link stability while the controller's internal APST is allowed.
 
 The installer removes the legacy `ayaneo-nvme-guard.service` and any `app.slice` write cap. Check APST and HMB state with:
 
@@ -51,6 +59,17 @@ sudo nvme get-feature /dev/nvme0 -f 0x0d -H
 ```
 
 Expected values are `15000`, `APSTE: Enabled`, and `HSIZE: 8192` (32 MiB).
+
+### Measured on the test device (2026-09-15)
+
+| Item | APST fully disabled | After the 15 ms bound |
+|---|---:|---:|
+| Controller / Composite | 68–72°C | 64–65°C after reboot |
+| NAND Sensor 2 | 50–55°C | 52°C |
+| Application write cap | 25 MB/s | None |
+| Kernel NVMe/AER errors | None | None |
+
+Temperature varies with ambient conditions and recent writes. After a download, internal SLC folding and garbage collection can keep the controller warm even after host writes stop.
 
 ---
 
@@ -85,6 +104,7 @@ sudo systemctl reboot
 3. **Scheduler Stabilization**: Permanently disables experimental BPF schedulers (`scx_loader`) in favor of upstream Linux EEVDF.
 4. **Hardware Udev Rules**: Installs the joystick LED suspend auto-off rule. (Touchscreen landscape rotation is handled natively by the compositor, so no calibration rule is installed.)
 5. **Bootloader Rebuild**: Automatically executes `limine-update` to regenerate boot configs and initramfs.
+6. **NVMe Power Management**: Updates the live controller PM QoS to 15 ms and removes the legacy `ayaneo-nvme-guard` and `app.slice` write limit.
 
 ---
 
@@ -143,6 +163,13 @@ ls /sys/devices/system/cpu/cpu0/cpuidle/
 cat /sys/module/nvme_core/parameters/default_ps_max_latency_us
 # Expected: 15000
 
+# Verify APST is enabled and the NM7A1 targets PS3
+sudo nvme get-feature /dev/nvme0 -f 0x0c -H
+# Expected: APSTE: Enabled, ITPS: 3
+
+# Verify that the legacy write cap is gone (empty output is expected)
+cat /sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/app.slice/io.max
+
 # 4. Verify LED suspend mode
 cat /sys/class/leds/ayaneo:rgb:joystick_rings/suspend_mode
 # Expected: [off] oem keep
@@ -152,7 +179,7 @@ cat /sys/class/leds/ayaneo:rgb:joystick_rings/suspend_mode
 
 ## 📚 Technical Documentation
 
-* [docs/HARDWARE_ANALYSIS.md](docs/HARDWARE_ANALYSIS.md) — Comprehensive technical deep-dive into the Data Fabric Sync Flood (`0x08000800`), ACPI DSDT lockup, and controller hiding mechanism.
+* [docs/HARDWARE_ANALYSIS.md](docs/HARDWARE_ANALYSIS.md) — Measured NVMe power states, HMB, temperatures, reset-log evidence, and controller stack analysis.
 * [docs/BIOS_RECOMMENDATIONS.md](docs/BIOS_RECOMMENDATIONS.md) — Step-by-step BIOS tuning guide.
 * [README.ko.md](README.ko.md) — 한국어 가이드 및 상세 설명서.
 

@@ -7,14 +7,22 @@
 
 > [English (README.md)](README.md) | **[🇰🇷 한국어]**
 
-**AYANEO Slide**(및 동일 기종인 **Antec Core HS**, AMD Ryzen 7 7840U / 8840U APU)를 리눅스(CachyOS, Bazzite, ChimeraOS, Arch Linux 등)에서 구동할 때 발생하는 **절전 모드 프리징, 영문 모를 강제 재부팅, SSD 절전 멈춤, 터치 좌표 오류** 등의 고질병들을 완벽하게 해결하는 원클릭 최적화 패키지입니다.
+**AYANEO Slide**(및 동일 기종인 **Antec Core HS**, AMD Ryzen 7 7840U / 8840U APU)의 리눅스 전원 관리, 컨트롤러 충돌, NVMe 대기 발열 문제를 이 기체에서 확인한 값에 맞춰 조정하는 설치 패키지입니다.
+
+## 이 프로젝트를 만든 이유
+
+아야네오 슬라이드에서 새로운 리눅스 배포판을 시험할 때마다 같은 커널 옵션과 서비스 충돌 해결법을 다시 찾아 헤매야 했습니다. 배포판만 바뀌었을 뿐인데 절전, 컨트롤러, TDP, 화면, NVMe 설정을 처음부터 다시 조사하는 일이 반복되는 게 너무 답답해서 이 프로젝트를 만들었습니다.
+
+인터넷에서 찾은 옵션을 그대로 모아둔 목록이 아닙니다. 제가 사용하는 **실제 AYANEO Slide**에 직접 적용하고 부팅 로그, 서비스 상태, 게임 실행, 다운로드 부하, SSD 전력 상태와 온도를 비교한 결과를 설치와 원상 복구가 가능한 형태로 정리했습니다. 확인되지 않은 원인은 단정하지 않고, 실기에서 새 증거가 나오면 설정과 문서도 함께 고칩니다.
+
+> **NVMe 수정 배경:** 원래 `nvme_core.default_ps_max_latency_us=0`은 렉사 NM7A1이 절전 후 깨어나지 못하는 문제를 피하려고 APST를 통째로 끈 응급조치였습니다. 이 값은 문제가 되는 PS4와 함께 안전한 PS3도 막아, 아무 작업이 없어도 컨트롤러가 운용 상태에 남고 68–72°C를 유지하는 부작용을 만들었습니다. 현재 설정 `15000`은 **PS4 차단을 유지하면서 50mW PS3만 복구**합니다.
 
 ---
 
 ## 🎯 적용 대상 기기 및 환경
 
 * **기기**: AYANEO Slide, Antec Core HS (AMD Ryzen 7 7840U / 8840U, Radeon 780M, 16GB / 24GB / 32GB LPDDR5X)
-* **저장장치**: OEM 탑재 렉사 NM7A1 (DRAM-less, HMB) 포함 모든 NVMe SSD
+* **저장장치**: OEM 렉사 NM7A1 2TB(펌웨어 9742, Maxio MAP1602, DRAM-less/HMB)에서 검증. 다른 NVMe는 같은 15ms 지연 한도 안에서 각자의 전력 상태를 선택함
 * **지원 운영체제**: CachyOS (핸드헬드 에디션), Arch Linux, Bazzite, ChimeraOS, SteamOS (SteamFork)
 * **부트로더**: Limine (CachyOS 기본), GRUB, systemd-boot
 
@@ -25,14 +33,14 @@
 | 문제 현상 | 발생 원인 | 해결책 (패키지 적용 내용) |
 | :--- | :--- | :--- |
 | **절전 모드(Sleep) 진입 후 영구 프리징**<br>*(전원 버튼으로 절전 진입 시 화면이 어두워진 채로 멈추며 버튼/화면 일체 반응 없음)* | 아야네오 슬라이드의 AMI 바이오스 ACPI DSDT 테이블에 비표준 전원 코드가 포함되어, 리눅스 커널 전원 관리자가 `s2idle` 진입 및 복귀 시 락업에 빠짐. | **`acpi=strict`**<br>커널이 제조사의 결함 있는 비표준 코드를 무시하고 엄격한 ACPI 국제 표준 규격만 따르도록 강제 (*ChimeraOS 이슈 #892 검증*). |
-| **이유 없는 갑작스러운 재부팅 / 셧다운**<br>*(메뉴 화면이나 대기 상태에서 갑자기 화면이 꺼지며 재부팅, 하드웨어 에러 `0x08000800` 기록; 배터리 사용 중 무거운 게임 로드 시 전원이 아예 꺼짐)* | ① AMD Zen 4 C3 초절전 진입 시 SoC 전압 급락 → 인피니티 패브릭 패리티 에러 → **Sync Flood** 리셋. ② **TDP 제한 없이 3D 부하가 걸리면 46Wh BMS가 과류로 즉시 차단** (전원 꺼짐, 재부팅 아님 — 배터리에서 발생). | **`processor.max_cstate=1`** & **`idle=nomwait`** + **HHD(Handheld Daemon) 필수**<br>C1으로 전압 강하 차단. HHD가 TDP/팬을 관리하며 AYANEO Slide 공식 지원. `steamos-manager`는 HHD와 충돌하므로 설치 스크립트가 자동 mask (disable만으론 Steam의 D-Bus 활성화가 뚫림). 불안정한 `scx_loader`도 비활성화. |
-| **렉사 NM790 NVMe의 높은 대기 온도와 딥슬립 불안정** | `default_ps_max_latency_us=0`은 APST를 완전히 꺼 컨트롤러를 계속 활성 상태로 둠. NM7A1의 PS3는 진입 5ms + 복귀 10ms, PS4는 진입 8ms + 복귀 45ms로 보고됨. | **`nvme_core.default_ps_max_latency_us=15000`**<br>50mW PS3까지만 허용하고 2.5mW 딥슬립 PS4는 배제. I/O 속도 제한 없이 대기 부하를 낮춤. PCIe 링크 ASPM은 기체 안정성을 위해 계속 비활성화. |
+| **갑작스러운 재부팅 / 셧다운** | 실제 고장 세션은 정상 종료·OOM·NVMe 오류 없이 로그가 끊겼음. 다음 부팅의 `0x00080800`은 CF9 소프트웨어 리셋 기록이라 원인을 단독으로 증명하지 못함. 당시 HHD가 없고 UMA는 512MiB였음. | **HHD 12W, boost off + `processor.max_cstate=1` + `idle=nomwait`**<br>전력 관리자를 하나만 유지하고 깊은 CPU idle 전환을 피함. UMA는 이 기체에서 6GiB로 설정해 게임 VRAM 부족도 분리함. |
+| **렉사 NM790 절전 복귀 실패와 높은 대기 온도** | 절전 복귀 실패를 피하려고 넣은 `default_ps_max_latency_us=0`이 APST를 통째로 꺼 컨트롤러를 계속 활성 상태로 둠. NM7A1의 PS3는 진입 5ms + 복귀 10ms, PS4는 진입 8ms + 복귀 45ms로 보고됨. | **`nvme_core.default_ps_max_latency_us=15000`**<br>원래 대응 목적대로 딥슬립 PS4는 계속 배제하면서 50mW PS3만 허용. I/O 속도 제한 없이 대기 부하를 낮춤. PCIe 링크 ASPM은 기체 안정성을 위해 계속 비활성화. |
 | **터치 입력이 엉뚱한 곳에 찍힘 (이중 회전)**<br>*(터치한 위치가 아닌 회전된 위치에 입력됨)* | 물리 패널이 1080x1920 세로(Portrait) 규격이라 KWin(Plasma Wayland)이 가로 출력 회전(output transform)을 터치 좌표에 자동 적용함. 여기에 udev `LIBINPUT_CALIBRATION_MATRIX` 90도 회전 매트릭스를 얹으면 좌표가 한 번 더 회전하여 반대편에 입력됨. | **캘리브레이션 매트릭스 미적용**<br>회전 보정은 컴포지터가 자체 처리하므로 이전 `99-ayaneo-slide-touchscreen.rules`는 제거됨. |
 | **절전 중 조이스틱 RGB LED 배터리 방전**<br>*(기기가 절전 상태인데도 조이스틱 테두리 링 LED가 계속 깜빡이며 배터리를 소모함)* | 순정 펌웨어 기본값이 절전 중 점멸(`[oem] keep off`)로 되어 있음. | **`udev/99-ayaneo-slide-led-suspend.rules`**<br>절전 모드 진입 시 LED 전원을 완전히 끄는 `ATTR{suspend_mode}="off"` 규칙 적용. |
 | **클럭소스 워치독 원격 CPU 타임아웃**<br>*(커널 로그에 `Watchdog remote CPU read timed out` 경고 발생)* | 전력 상태 전환 시 TSC 클럭 타이머 드리프트 발생. | **`tsc=reliable`**<br>16스레드 전체에서 invariant TSC를 신뢰할 수 있는 클럭소스로 고정. |
  | **도킹 허브 / 외장 모니터 연결 시 DCN 락업**<br>*(USB-C 도크 연결 시 커널에 `REG_WAIT timeout in dcn31_program_compbuf_size` 경고 발생)* | DCN 3.1.4 디스플레이 압축 버퍼가 대역폭 재할당 시 시스템 메모리 버스(Data Fabric)와 충돌하여 응답 타임아웃 발생. | **`amdgpu.sg_display=0`**<br>APU의 비연속적 Scatter-Gather 메모리 할당을 끄고 연속 VRAM을 강제하여 DCHUBBUB 동기화 락업 방지. |
-| **eDP 패널 PSR 불안정**<br>*(Steam 실행, Proton prefix 세팅 등 GPU 부하 시 간헐적 데이터 패브릭 sync flood 재부팅 발생)* | DCN 3.1.4의 eDP PSR 전력 상태 전환이 Phoenix APU에서 디스플레이 파이프라인과 Data Fabric을 불안정하게 만듦. | **`amdgpu.dcdebugmask=0x10`**<br>PSR을 비활성화하여 eDP 링크를 활성 상태로 유지, GPU 클럭 전환 시 패브릭 오류 예방. |
-| **3D / Proton 실행 시 Data Fabric Sync Flood [0x08000800]**<br>*(게임 실행이나 3D 그래픽 초기화 시 즉각적인 하드 셧다운/재부팅)* | 피닉스 APU의 통합 GPU가 그래픽 DMA 버퍼를 급격히 요청할 때 IOMMU 동적 주소 변환 페이지 테이블 워크 지연으로 데이터 패브릭 락업 발생. | **`iommu=pt`**<br>통합 장치에 대해 IOMMU를 Passthrough 모드로 설정하여 주소 변환 병목을 우회하고 메모리 컨트롤러 프리징 방지. |
+| **eDP 패널 PSR 불안정**<br>*(화면 전환 시 점멸·검은 화면)* | DCN 3.1.4의 eDP PSR 전력 상태 전환이 GPU 클럭 변경과 겹칠 수 있음. | **`amdgpu.dcdebugmask=0x10`**<br>PSR을 비활성화해 내부 패널 링크 상태 변화를 줄임. |
+| **3D / Proton 실행 안정성** | 통합 GPU와 NVMe가 시스템 메모리 대역폭을 공유하므로 3D 초기화 때 IOMMU 변환 부하가 커질 수 있음. 이 기체의 과거 강제 재부팅 원인을 특정 오류 하나로 단정할 로그는 없음. | **`iommu=pt`**<br>통합 장치의 IOMMU 변환 오버헤드를 줄이는 보수적 설정. |
 | **NVMe 대용량 I/O 및 고부하 시 PCIe 전압 강하**<br>*(스팀 고속 다운로드나 셰이더 빌드 중 기기 멈춤 또는 재부팅)* | PCIe 능동 전원 관리(ASPM)가 고속 읽기/쓰기 중간중간 저전력 모드로 전환을 시도하면서 링크 지연 및 순간 전압 강하를 유발함. | **`pcie_aspm=off`**<br>PCIe ASPM 절전 상태를 꺼서 고부하 환경에서도 PCIe 링크를 풀 스피드로 상시 유지. |
 | **디램리스 NVMe의 HMB 사용** | NM7A1은 자체 DRAM 대신 시스템 램을 HMB로 사용함. 이 장치는 희망값과 최소값을 모두 8192페이지로 보고하며 커널은 요청량 전부를 할당함. | **32MiB HMB 유지**<br>실측에서 HMB는 32MiB로 정상 활성화됨. RAM을 더 할당하는 설정은 컨트롤러가 요청하거나 지원하지 않으며, HMB를 끄면 주소 변환 효율만 악화됨. |
 
@@ -40,7 +48,7 @@
 
 ## 🎛️ NVMe 전력 관리 방식
 
-설치기는 `nvme_core.default_ps_max_latency_us=15000`을 적용합니다. NM7A1이 보고한 전력 상태를 기준으로 15ms 한도는 50mW PS3를 정확히 포함하고, 총 전환 지연이 53ms인 PS4는 제외합니다. 사용 중에는 즉시 최대 성능 상태로 복귀하므로 다운로드와 게임 읽기 속도에는 상한이 생기지 않습니다.
+설치기는 `nvme_core.default_ps_max_latency_us=15000`을 적용합니다. NM7A1이 보고한 전력 상태를 기준으로 15ms 한도는 50mW PS3를 정확히 포함하고, 총 전환 지연이 53ms인 PS4는 제외합니다. 100ms 동안 I/O가 없으면 PS3로 들어가고, I/O가 시작되면 운용 상태로 복귀하므로 다운로드와 게임 읽기 속도에는 상한이 생기지 않습니다. `pcie_aspm=off`는 기체의 링크 안정성을 위해 유지하되 SSD 컨트롤러 내부 APST만 허용합니다.
 
 이전 버전의 `ayaneo-nvme-guard.service`와 `app.slice` 쓰기 제한은 설치 과정에서 자동 제거됩니다. APST와 현재 HMB 상태는 다음처럼 확인할 수 있습니다.
 
@@ -51,6 +59,17 @@ sudo nvme get-feature /dev/nvme0 -f 0x0d -H
 ```
 
 정상값은 각각 `15000`, `APSTE: Enabled`, `HSIZE: 8192`(32MiB)입니다.
+
+### 이 기체 실측 (2026-09-15)
+
+| 항목 | APST 완전 비활성 | 15ms 한도 적용 후 |
+|---|---:|---:|
+| 컨트롤러/Composite | 68–72°C | 재부팅 후 64–65°C |
+| NAND Sensor 2 | 50–55°C | 52°C |
+| 앱 쓰기 제한 | 25MB/s | 없음 |
+| 커널 NVMe/AER 오류 | 없음 | 없음 |
+
+온도는 주변 온도와 직전 쓰기 작업에 따라 달라집니다. 다운로드 직후에는 호스트 쓰기가 끝나도 SLC 캐시 정리와 가비지 컬렉션 때문에 컨트롤러 온도가 잠시 높게 유지될 수 있습니다.
 
 ---
 
@@ -85,6 +104,7 @@ sudo systemctl reboot
 3. **스케줄러 안정화**: 실험적이고 불안정한 BPF CPU 스케줄러(`scx_loader`)를 영구 비활성화하고 정석 EEVDF 스케줄러로 복구합니다.
 4. **하드웨어 udev 룰 등록**: 조이스틱 LED 절전 자동 소등 룰을 시스템에 등록합니다. (터치스크린 가로 보정은 컴포지터가 자체 처리하므로 룰을 별도로 설치하지 않습니다.)
 5. **부트로더 갱신**: `limine-update`를 실행하여 새로운 커널 설정과 initramfs를 빌드합니다.
+6. **NVMe 전력 관리**: 실행 중인 컨트롤러의 PM QoS도 15ms로 즉시 갱신하고, 구버전의 `ayaneo-nvme-guard`와 `app.slice` 쓰기 제한을 제거합니다.
 
 ---
 
@@ -122,7 +142,7 @@ curl -sSL https://raw.githubusercontent.com/jshsakura/steamdeck/main/install.sh 
 
 | 항목 | 권장값 | 기본값 | 이유 및 효과 |
 | :--- | :---: | :---: | :--- |
-| **UMA Frame buffer Size** | **`6G`** 또는 **`8G`** | Auto / 3G | 라데온 780M 내장 그래픽에 VRAM을 고정 할당합니다. 사이버펑크 2077, 엘든링 등 최신 게임 구동 시 비디오 메모리 부족으로 게임이 튕기는 OOM Crash를 완벽 차단합니다 (*슬라이드는 24GB 대용량 RAM 탑재*). |
+| **UMA Frame buffer Size** | **`6G`** 또는 **`8G`** | Auto / 3G | 라데온 780M 내장 그래픽에 VRAM을 고정 할당해 게임의 비디오 메모리 부족 가능성을 낮춥니다 (*슬라이드는 24GB RAM 탑재*). |
 | **fTPM** | **`Disabled`** | Enabled | AMD Zen 4 칩셋 특유의 간헐적 마이크로 스터터링(프레임 및 사운드가 0.5초간 뚝 끊기는 현상)을 방지합니다. 리눅스에서는 fTPM이 불필요합니다. |
 | **Core Watchdog Timer** | **`Disabled`** | Enabled | 바이오스 하드웨어 감시자의 오작동으로 인한 갑작스러운 강제 재부팅을 방지합니다. |
 | **IGD - AmdGop Output Priority** | **`LCD`** | CRT | 내부 디스플레이를 최우선 출력으로 지정하여 독(Dock) 연결이나 외부 디스플레이 분리 시 화면이 안 나오는 버그를 방지합니다. |
@@ -161,6 +181,13 @@ ls /sys/devices/system/cpu/cpu0/cpuidle/
 cat /sys/module/nvme_core/parameters/default_ps_max_latency_us
 # 출력: 15000
 
+# APST가 켜졌고 NM7A1의 전이 대상이 PS3인지 확인
+sudo nvme get-feature /dev/nvme0 -f 0x0c -H
+# 출력: APSTE: Enabled, ITPS: 3
+
+# 구버전 쓰기 제한이 제거됐는지 확인 (빈 출력이 정상)
+cat /sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/app.slice/io.max
+
 # 4. 조이스틱 LED 절전 설정 확인
 cat /sys/class/leds/ayaneo:rgb:joystick_rings/suspend_mode
 # 출력: [off] oem keep
@@ -170,7 +197,7 @@ cat /sys/class/leds/ayaneo:rgb:joystick_rings/suspend_mode
 
 ## 📚 기술 문서 링크
 
-* [docs/HARDWARE_ANALYSIS.md](docs/HARDWARE_ANALYSIS.md) — Data Fabric Sync Flood(`0x08000800`), ACPI DSDT 락업, 스팀 패드 숨김 구조에 대한 상세 기술 분석서
+* [docs/HARDWARE_ANALYSIS.md](docs/HARDWARE_ANALYSIS.md) — 실측 NVMe 전력 상태, HMB, 온도, 재부팅 로그와 컨트롤러 스택 분석
 * [docs/BIOS_RECOMMENDATIONS.md](docs/BIOS_RECOMMENDATIONS.md) — 바이오스 최적화 단계별 가이드
 * [README.md](README.md) — Global English Documentation
 
