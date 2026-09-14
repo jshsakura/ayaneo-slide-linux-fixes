@@ -70,9 +70,13 @@ if systemctl is-active --quiet "hhd_local@${CURRENT_USER}"; then
 else
     if [ "$(readlink -f /etc/systemd/system/steamos-manager.service 2>/dev/null)" = "/dev/null" ]; then
         systemctl unmask steamos-manager
-        echo -e "${YELLOW}[!] HHD unavailable - steamos-manager restored as sole power manager. Install HHD before gaming on battery.${NC}"
+    fi
+    systemctl enable --now steamos-manager 2>/dev/null || true
+    if systemctl is-active --quiet steamos-manager; then
+        echo -e "${YELLOW}[!] HHD unavailable - steamos-manager active as sole power manager. Install HHD before gaming on battery.${NC}"
     else
-        echo -e "${YELLOW}[!] HHD unavailable - steamos-manager kept as sole power manager. Install HHD before gaming on battery.${NC}"
+        echo -e "${RED}[ERROR] Neither HHD nor steamos-manager is active; refusing to leave the system without a power manager.${NC}"
+        exit 1
     fi
 fi
 
@@ -281,6 +285,10 @@ EOF
 systemctl daemon-reload
 systemctl enable ayaneo-nvme-guard.service 2>/dev/null || true
 systemctl restart ayaneo-nvme-guard.service
+if ! systemctl is-active --quiet ayaneo-nvme-guard.service; then
+    echo -e "${RED}[ERROR] NVMe thermal guard failed to start.${NC}"
+    exit 1
+fi
 echo -e "${GREEN}✓ Thermal guard active: 25M ceiling, clamp 8M at 74C, release 70C (app.slice only, desktop exempt).${NC}"
 
 # Optional drive-level self-throttle: report HCTM (Host Controlled Thermal
