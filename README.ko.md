@@ -1,6 +1,6 @@
 # AYANEO Slide & Antec Core HS 리눅스 최적화 패키지
 
-[![Platform](https://img.shields.io/badge/Platform-CachyOS%20%7C%20Arch%20%7C%20Bazzite%20%7C%20SteamOS-1793D1?logo=arch-linux&logoColor=white)](https://cachyos.org)
+[![Platform](https://img.shields.io/badge/Platform-CachyOS%20%7C%20Arch-1793D1?logo=arch-linux&logoColor=white)](https://cachyos.org)
 [![Hardware](https://img.shields.io/badge/Hardware-AYANEO%20Slide%20%7C%20Antec%20Core%20HS-FF6600)]()
 [![APU](https://img.shields.io/badge/APU-AMD%20Ryzen%207%207840U%20%2F%208840U-ED1C24?logo=amd&logoColor=white)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -23,25 +23,25 @@
 
 * **기기**: AYANEO Slide, Antec Core HS (AMD Ryzen 7 7840U / 8840U, Radeon 780M, 16GB / 24GB / 32GB LPDDR5X)
 * **저장장치**: OEM 렉사 NM7A1 2TB(펌웨어 9742, Maxio MAP1602, DRAM-less/HMB)에서 검증. 다른 NVMe는 같은 15ms 지연 한도 안에서 각자의 전력 상태를 선택함
-* **지원 운영체제**: CachyOS (핸드헬드 에디션), Arch Linux, Bazzite, ChimeraOS, SteamOS (SteamFork)
-* **부트로더**: Limine (CachyOS 기본), GRUB, systemd-boot
+* **자동 설치 지원**: CachyOS Deckify / Arch 계열 + `pacman` + Limine
+* **참고용**: Bazzite, ChimeraOS, SteamOS, GRUB, systemd-boot에서는 설정 원리를 참고할 수 있지만 설치기가 부팅 옵션을 자동 적용하지 않음
 
 ---
 
-## 🛠 해결되는 고질적 하드웨어 결함 상세
+## 🛠 문제별 설정과 확인 근거
 
-| 문제 현상 | 발생 원인 | 해결책 (패키지 적용 내용) |
+| 문제 현상 | 관찰 및 판단 | 적용 설정 |
 | :--- | :--- | :--- |
-| **절전 모드(Sleep) 진입 후 영구 프리징**<br>*(전원 버튼으로 절전 진입 시 화면이 어두워진 채로 멈추며 버튼/화면 일체 반응 없음)* | 아야네오 슬라이드의 AMI 바이오스 ACPI DSDT 테이블에 비표준 전원 코드가 포함되어, 리눅스 커널 전원 관리자가 `s2idle` 진입 및 복귀 시 락업에 빠짐. | **`acpi=strict`**<br>커널이 제조사의 결함 있는 비표준 코드를 무시하고 엄격한 ACPI 국제 표준 규격만 따르도록 강제 (*ChimeraOS 이슈 #892 검증*). |
-| **갑작스러운 재부팅 / 셧다운** | 실제 고장 세션은 정상 종료·OOM·NVMe 오류 없이 로그가 끊겼음. 다음 부팅의 `0x00080800`은 CF9 소프트웨어 리셋 기록이라 원인을 단독으로 증명하지 못함. 당시 HHD가 없고 UMA는 512MiB였음. | **HHD 12W, boost off + `processor.max_cstate=1` + `idle=nomwait`**<br>전력 관리자를 하나만 유지하고 깊은 CPU idle 전환을 피함. UMA는 이 기체에서 6GiB로 설정해 게임 VRAM 부족도 분리함. |
+| **절전 모드 진입 후 복귀 실패** | 이 문제 때문에 처음에는 NVMe APST를 통째로 껐음. ACPI와 NM7A1 PS4 복귀 경로가 모두 후보이며 현재 로그만으로 하나를 단정하지 않음. 새 설정에서 15초 `s2idle` 1회는 정상 복귀함. | **`acpi=strict` + NVMe APST 15ms 한도**<br>커뮤니티에서 사용된 ACPI 완화책을 유지하고 NM7A1 PS4를 제외함. 장시간·반복 슬립 검증은 아직 남아 있음. |
+| **갑작스러운 재부팅 / 셧다운** | 실제 고장 세션은 정상 종료·OOM·NVMe 오류 없이 로그가 끊겼음. 다음 부팅의 `0x00080800`은 CF9 소프트웨어 리셋 기록이라 원인을 단독으로 증명하지 못함. 당시 HHD가 없고 UMA는 512MiB였음. | **HHD 단독 사용 + 8–12W 안정성 기준 + boost off + `processor.max_cstate=1` + `idle=nomwait`**<br>전력 관리자를 하나만 유지하고 깊은 CPU idle 전환을 피함. 설치기는 사용자가 선택한 지속 TDP는 보존하고 QAM boost만 끔. UMA는 이 기체에서 6GiB로 설정해 게임 VRAM 부족도 분리함. |
 | **렉사 NM790 절전 복귀 실패와 높은 대기 온도** | 절전 복귀 실패를 피하려고 넣은 `default_ps_max_latency_us=0`이 APST를 통째로 꺼 컨트롤러를 계속 활성 상태로 둠. NM7A1의 PS3는 진입 5ms + 복귀 10ms, PS4는 진입 8ms + 복귀 45ms로 보고됨. | **`nvme_core.default_ps_max_latency_us=15000`**<br>원래 대응 목적대로 딥슬립 PS4는 계속 배제하면서 50mW PS3만 허용. I/O 속도 제한 없이 대기 부하를 낮춤. PCIe 링크 ASPM은 기체 안정성을 위해 계속 비활성화. |
 | **터치 입력이 엉뚱한 곳에 찍힘 (이중 회전)**<br>*(터치한 위치가 아닌 회전된 위치에 입력됨)* | 물리 패널이 1080x1920 세로(Portrait) 규격이라 KWin(Plasma Wayland)이 가로 출력 회전(output transform)을 터치 좌표에 자동 적용함. 여기에 udev `LIBINPUT_CALIBRATION_MATRIX` 90도 회전 매트릭스를 얹으면 좌표가 한 번 더 회전하여 반대편에 입력됨. | **캘리브레이션 매트릭스 미적용**<br>회전 보정은 컴포지터가 자체 처리하므로 이전 `99-ayaneo-slide-touchscreen.rules`는 제거됨. |
 | **절전 중 조이스틱 RGB LED 배터리 방전**<br>*(기기가 절전 상태인데도 조이스틱 테두리 링 LED가 계속 깜빡이며 배터리를 소모함)* | 순정 펌웨어 기본값이 절전 중 점멸(`[oem] keep off`)로 되어 있음. | **`udev/99-ayaneo-slide-led-suspend.rules`**<br>절전 모드 진입 시 LED 전원을 완전히 끄는 `ATTR{suspend_mode}="off"` 규칙 적용. |
-| **클럭소스 워치독 원격 CPU 타임아웃**<br>*(커널 로그에 `Watchdog remote CPU read timed out` 경고 발생)* | 전력 상태 전환 시 TSC 클럭 타이머 드리프트 발생. | **`tsc=reliable`**<br>16스레드 전체에서 invariant TSC를 신뢰할 수 있는 클럭소스로 고정. |
- | **도킹 허브 / 외장 모니터 연결 시 DCN 락업**<br>*(USB-C 도크 연결 시 커널에 `REG_WAIT timeout in dcn31_program_compbuf_size` 경고 발생)* | DCN 3.1.4 디스플레이 압축 버퍼가 대역폭 재할당 시 시스템 메모리 버스(Data Fabric)와 충돌하여 응답 타임아웃 발생. | **`amdgpu.sg_display=0`**<br>APU의 비연속적 Scatter-Gather 메모리 할당을 끄고 연속 VRAM을 강제하여 DCHUBBUB 동기화 락업 방지. |
+| **클럭소스 워치독 경고**<br>*(과거 로그의 `Watchdog remote CPU read timed out`)* | 현재 부팅은 TSC를 사용하며 클럭소스 경고가 없지만, 과거 경고가 주파수 변화 때문이라는 A/B 근거는 없음. | **기준 설정으로 `tsc=reliable` 유지**<br>커널에 TSC를 신뢰하라고 지시해 워치독 기반 대체 전환을 억제할 수 있으므로 원인 해결이 아닌 완화책임. |
+| **DCN 디스플레이 버퍼 경고**<br>*(`REG_WAIT timeout in dcn31_program_compbuf_size`)* | `amdgpu.sg_display=0`이 실제 적용됐는데도 현재 Linux 7.2.3 부팅에서 timeout이 한 번 남았음. GPU 리셋은 없었고 도크 A/B 시험도 아직 완료하지 않음. | **미해결; 시험 목적으로 `amdgpu.sg_display=0` 유지**<br>이 옵션이 경고를 해결한다고 더는 주장하지 않음. 옵션을 켠 상태와 끈 상태의 도크 반복 시험이 남아 있음. |
 | **eDP 패널 PSR 불안정**<br>*(화면 전환 시 점멸·검은 화면)* | DCN 3.1.4의 eDP PSR 전력 상태 전환이 GPU 클럭 변경과 겹칠 수 있음. | **`amdgpu.dcdebugmask=0x10`**<br>PSR을 비활성화해 내부 패널 링크 상태 변화를 줄임. |
 | **3D / Proton 실행 안정성** | 통합 GPU와 NVMe가 시스템 메모리 대역폭을 공유하므로 3D 초기화 때 IOMMU 변환 부하가 커질 수 있음. 이 기체의 과거 강제 재부팅 원인을 특정 오류 하나로 단정할 로그는 없음. | **`iommu=pt`**<br>통합 장치의 IOMMU 변환 오버헤드를 줄이는 보수적 설정. |
-| **NVMe 대용량 I/O 및 고부하 시 PCIe 전압 강하**<br>*(스팀 고속 다운로드나 셰이더 빌드 중 기기 멈춤 또는 재부팅)* | PCIe 능동 전원 관리(ASPM)가 고속 읽기/쓰기 중간중간 저전력 모드로 전환을 시도하면서 링크 지연 및 순간 전압 강하를 유발함. | **`pcie_aspm=off`**<br>PCIe ASPM 절전 상태를 꺼서 고부하 환경에서도 PCIe 링크를 풀 스피드로 상시 유지. |
+| **PCIe 링크 전력 상태 전환** | `pcie_aspm=off`가 적용된 현재 읽기 시험에서는 AER·NVMe 오류가 없었음. ASPM을 켠 대조 시험은 아직 없어 기존의 전압 강하 설명은 입증되지 않음. | **시험 목적으로 `pcie_aspm=off` 유지**<br>현재 안정성 기준에서 링크 전력 전환을 제외함. A/B 시험이 필요하며 ASPM 비활성화는 대기 전력을 높일 수 있음. |
 | **디램리스 NVMe의 HMB 사용** | NM7A1은 자체 DRAM 대신 시스템 램을 HMB로 사용함. 이 장치는 희망값과 최소값을 모두 8192페이지로 보고하며 커널은 요청량 전부를 할당함. | **32MiB HMB 유지**<br>실측에서 HMB는 32MiB로 정상 활성화됨. RAM을 더 할당하는 설정은 컨트롤러가 요청하거나 지원하지 않으며, HMB를 끄면 주소 변환 효율만 악화됨. |
 
 ---
@@ -70,6 +70,8 @@ sudo nvme get-feature /dev/nvme0 -f 0x0d -H
 | 커널 NVMe/AER 오류 | 없음 | 없음 |
 
 온도는 주변 온도와 직전 쓰기 작업에 따라 달라집니다. 다운로드 직후에는 호스트 쓰기가 끝나도 SLC 캐시 정리와 가비지 컬렉션 때문에 컨트롤러 온도가 잠시 높게 유지될 수 있습니다.
+
+지속 `O_DIRECT` 읽기 시험에서는 속도 제한 없이 3.5–3.9GiB/s가 유지됐고 NVMe/AER 오류는 없었지만, 컨트롤러는 81–82°C까지 상승했습니다. APST 수정은 대기·간헐 부하의 낭비를 줄이며 지속 풀로드 발열 자체를 없애지는 않습니다. 자세한 통과 항목과 남은 시험은 [실기 테스트 결과](docs/TEST_RESULTS.md)에 기록합니다.
 
 ---
 
@@ -110,13 +112,15 @@ sudo systemctl reboot
 
 ## ↩️ 원상 복구 (제거 방법)
 
-모든 설정을 순정 상태로 되돌리고 싶으실 때는 아래 명령어를 실행하시면 됩니다:
+레포가 설치한 Limine 옵션, udev 규칙과 구버전 NVMe 제한을 제거하려면 아래 명령어를 실행합니다. HHD가 실행 중이면 컨트롤러와 전력 관리가 끊기지 않도록 HHD 및 충돌 서비스 마스크는 유지합니다.
 
 ```bash
 cd ayaneo-slide-linux-fixes
 sudo bash uninstall.sh
 sudo systemctl reboot
 ```
+
+현재 설치기는 자신이 새로 추가한 Limine 옵션을 기록하며, 제거할 때 그 옵션만 지워 설치 이후 사용자가 바꾼 항목을 보존합니다. 예전 `.orig` 파일은 수동 복구용으로 남기고 제거 스크립트가 통째로 덮어쓰지 않습니다.
 
 ---
 
@@ -143,8 +147,8 @@ curl -sSL https://raw.githubusercontent.com/jshsakura/steamdeck/main/install.sh 
 | 항목 | 권장값 | 기본값 | 이유 및 효과 |
 | :--- | :---: | :---: | :--- |
 | **UMA Frame buffer Size** | **`6G`** 또는 **`8G`** | Auto / 3G | 라데온 780M 내장 그래픽에 VRAM을 고정 할당해 게임의 비디오 메모리 부족 가능성을 낮춥니다 (*슬라이드는 24GB RAM 탑재*). |
-| **fTPM** | **`Disabled`** | Enabled | AMD Zen 4 칩셋 특유의 간헐적 마이크로 스터터링(프레임 및 사운드가 0.5초간 뚝 끊기는 현상)을 방지합니다. 리눅스에서는 fTPM이 불필요합니다. |
-| **Core Watchdog Timer** | **`Disabled`** | Enabled | 바이오스 하드웨어 감시자의 오작동으로 인한 갑작스러운 강제 재부팅을 방지합니다. |
+| **fTPM** | **기본값 유지** | Enabled | 현재 수집한 로그에는 fTPM 오류가 없습니다. 디스크 암호화나 장치 인증에 사용할 수 있으므로 실제 fTPM 스터터가 재현될 때만 변경합니다. |
+| **Core Watchdog Timer** | **기본값 유지** | Enabled | 현재의 CF9 리셋 기록만으로 워치독 오작동을 입증할 수 없습니다. 원인 분리 시험 없이 끄지 않습니다. |
 | **IGD - AmdGop Output Priority** | **`LCD`** | CRT | 내부 디스플레이를 최우선 출력으로 지정하여 독(Dock) 연결이나 외부 디스플레이 분리 시 화면이 안 나오는 버그를 방지합니다. |
 
 > 상세한 바이오스 설정 안내는 [docs/BIOS_RECOMMENDATIONS.md](docs/BIOS_RECOMMENDATIONS.md) 문서를 참고하세요.
@@ -153,27 +157,20 @@ curl -sSL https://raw.githubusercontent.com/jshsakura/steamdeck/main/install.sh 
 
 ## 🔋 추천 TDP 전력 프로필 (Decky Loader 활용)
 
-스팀 게임모드에서 Decky Loader의 **SimpleDeckyTDP** 또는 **PowerTools** 플러그인을 사용하여 TDP를 제어하는 것을 권장합니다:
-
-* **배터리 구동 시**: **`15W – 18W` 고정**
-  * 7840U의 와트당 성능비(Sweet Spot)가 가장 높은 구간입니다. 20W 이상 부스트를 허용하면 발열이 심해지고 슬라이드의 46Wh 배터리 보호회로(BMS)에서 과전류 차단이 발생할 수 있습니다.
-* **충전기 연결(시즈모드) 시**: **`22W – 28W`**
-  * 슬라이드의 내장 쿨링팬으로 쾌적하게 고성능 게이밍이 가능합니다.
-* **수동 GPU 클럭 고정**: **`1200MHz – 1600MHz`**
-  * CPU와 GPU 간 전력 줄다리기를 막아 게임 내 1% Low 최저 프레임을 대폭 안정화합니다.
+HHD에서 먼저 **8–12W, CPU boost off, GPU auto**로 안정성을 확인합니다. 이 기체의 현재 전원 절약 프로필은 8W이며 이전 시험은 12W에서 수행했습니다. Space Marine 2처럼 과거에 약 5분 만에 시스템이 꺼진 부하는 최소 20–30분 동안 반복 검증한 뒤에만 TDP를 올립니다. 충전기 연결 여부만으로 22–28W가 안전하다고 가정하지 않습니다.
 
 ---
 
 ## 🔍 패치 정상 적용 여부 확인 방법
 
-재부팅 후 터미널에서 다음 명령어들로 패치 활성화 여부를 즉시 검증할 수 있습니다:
+재부팅 후 터미널에서 다음 명령어들로 설치된 설정을 확인할 수 있습니다:
 
 ```bash
 # 1. 커널 부팅 파라미터 확인
 cat /proc/cmdline
 # 확인: acpi=strict, processor.max_cstate=1, idle=nomwait, nvme_core.default_ps_max_latency_us=15000 포함 여부
 
-# 2. C-state 전압 강하 차단 확인 (C2/C3가 사라지고 POLL과 C1만 존재해야 함)
+# 2. C-state 제한 확인 (POLL과 C1만 보여야 함)
 ls /sys/devices/system/cpu/cpu0/cpuidle/
 # 출력: state0 state1 (state2, state3이 없어야 정상)
 
@@ -198,6 +195,7 @@ cat /sys/class/leds/ayaneo:rgb:joystick_rings/suspend_mode
 ## 📚 기술 문서 링크
 
 * [docs/HARDWARE_ANALYSIS.md](docs/HARDWARE_ANALYSIS.md) — 실측 NVMe 전력 상태, HMB, 온도, 재부팅 로그와 컨트롤러 스택 분석
+* [docs/TEST_RESULTS.md](docs/TEST_RESULTS.md) — 재부팅, APST, HMB, 슬립 복귀, 직접 읽기 부하 시험 및 알려진 한계
 * [docs/BIOS_RECOMMENDATIONS.md](docs/BIOS_RECOMMENDATIONS.md) — 바이오스 최적화 단계별 가이드
 * [README.md](README.md) — Global English Documentation
 
@@ -206,7 +204,7 @@ cat /sys/class/leds/ayaneo:rgb:joystick_rings/suspend_mode
 ## 🤝 참고 문헌 및 커뮤니티 기여
 
 * [ChimeraOS Issue #892](https://github.com/ChimeraOS/chimeraos/issues/892) — 아야네오 슬라이드 / Antec Core HS의 `acpi=strict` 해결책 발견
-* [Valve Software SteamOS Issue #2757](https://github.com/ValveSoftware/SteamOS/issues/2757) — AMD Zen 4 인피니티 패브릭 Sync Flood 리셋 원인 규명
+* [Valve Software SteamOS Issue #2757](https://github.com/ValveSoftware/SteamOS/issues/2757) — AMD 플랫폼 리셋 관련 커뮤니티 조사
 * [Bazzite Issue #5596 & #5508](https://github.com/ublue-os/bazzite/issues/5596) — 슬라이드 절전 루틴 및 입력 장치 분석
 * [ShadowBlip / ayaneo-platform](https://github.com/ShadowBlip/ayaneo-platform) — 아야네오 리눅스 커널 플랫폼 드라이버
 

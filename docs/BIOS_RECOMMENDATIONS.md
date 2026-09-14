@@ -14,17 +14,16 @@ This guide details the recommended BIOS settings for the **AYANEO Slide** (and *
 
 | Setting | Recommended Value | Default | Rationale |
 | :--- | :---: | :---: | :--- |
-| **UMA Frame buffer Size** | **`6G`** or **`8G`** | Auto / 3G | Allocates dedicated VRAM to the Radeon 780M iGPU. Eliminates out-of-memory game crashes (OOM) in modern AAA games (e.g., Cyberpunk 2077, Elden Ring). |
-| **fTPM** | **`Disabled`** | Enabled | Prevents intermittent micro-stuttering and audio dropouts known across AMD Zen 4 mobile APUs on Linux. |
-| **Core Watchdog Timer** | **`Disabled`** | Enabled | Prevents unexpected hardware resets caused by false-positive watchdog stalls. |
+| **UMA Frame buffer Size** | **`6G` tested** | Auto / 3G | Reserves enough Radeon 780M memory for the tested games while leaving 18 GiB of the device's 24 GiB for Linux. This reduces VRAM exhaustion; it does not guarantee that every game cannot OOM. |
+| **fTPM** | **Keep default** | Enabled | No fTPM fault appears in the collected logs. Leave it enabled unless an fTPM-specific stall is reproduced and disk-encryption implications are understood. |
+| **Core Watchdog Timer** | **Keep default** | Enabled | The observed CF9 software-reset record does not establish a false watchdog trigger. Leave it enabled unless an isolated test proves otherwise. |
 | **IGD - AmdGop Output Priority** | **`LCD`** | CRT | Prioritizes the internal display during early boot, preventing black-screen issues on docks or external monitors. |
 
 ---
 
 ## ⚡ Battery & TDP Best Practices (via Decky Loader)
 
-* **On Battery**: Set TDP to **`15W – 18W`**.
-  * The 7840U operates at peak efficiency (perf-per-watt sweet spot) in this range.
-  * Prevents BMS voltage drop cutoffs caused by >25W transient spikes on the Slide's 46Wh battery.
-* **On AC Power (Docked)**: Set TDP to **`22W – 28W`**.
-* **Manual GPU Clock**: Lock GPU clock between **`1200MHz – 1600MHz`** to improve 1% low frame rate consistency.
+* Begin at **8–12 W**, disable CPU boost, and leave GPU frequency on `auto`.
+* Repeat a previously failing game for at least 20–30 minutes before raising TDP.
+* Treat AC and battery as separate tests. A charger does not by itself validate 22–28 W operation.
+* The installer intentionally leaves the user's HHD TDP unchanged.

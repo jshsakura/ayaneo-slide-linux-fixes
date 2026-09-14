@@ -1,6 +1,6 @@
 # AYANEO Slide & Antec Core HS - Linux Optimizations & Community Fixes
 
-[![Platform](https://img.shields.io/badge/Platform-CachyOS%20%7C%20Arch%20%7C%20Bazzite%20%7C%20SteamOS-1793D1?logo=arch-linux&logoColor=white)](https://cachyos.org)
+[![Platform](https://img.shields.io/badge/Platform-CachyOS%20%7C%20Arch-1793D1?logo=arch-linux&logoColor=white)](https://cachyos.org)
 [![Hardware](https://img.shields.io/badge/Hardware-AYANEO%20Slide%20%7C%20Antec%20Core%20HS-FF6600)]()
 [![APU](https://img.shields.io/badge/APU-AMD%20Ryzen%207%207840U%20%2F%208840U-ED1C24?logo=amd&logoColor=white)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -23,25 +23,25 @@ This is not a collection of untested settings copied from the internet. I apply 
 
 * **Hardware**: AYANEO Slide, Antec Core HS (AMD Ryzen 7 7840U / 8840U, Radeon 780M iGPU, 16GB / 24GB / 32GB LPDDR5X)
 * **Storage**: Verified with the OEM Lexar NM7A1 2TB (firmware 9742, Maxio MAP1602, DRAM-less/HMB). Other drives select their own power state within the same 15 ms latency bound
-* **Supported Distros**: CachyOS (Handheld Edition), Arch Linux, Bazzite, ChimeraOS, SteamOS (SteamFork)
-* **Bootloaders**: Limine (default on CachyOS Deckify), GRUB, systemd-boot
+* **Automated install target**: CachyOS Deckify / Arch-based systems with `pacman` and Limine
+* **Reference only**: Bazzite, ChimeraOS, SteamOS, GRUB, and systemd-boot users can reuse the documented settings, but the installer does not persist their boot options automatically
 
 ---
 
-## 🛠 Chronic Issues & Applied Resolutions
+## 🛠 Issues, Evidence, and Applied Settings
 
-| Issue / Symptom | Root Cause | Solution Applied |
+| Issue / Symptom | Observation and assessment | Applied setting |
 | :--- | :--- | :--- |
-| **Sleep/Wake Blackout Freeze**<br>*(Device goes to sleep via power button, screen stays black/dim, never wakes up)* | AMI BIOS ACPI DSDT implementation contains non-standard OEM power routines that cause Linux kernel power manager lockup during `s2idle`. | **`acpi=strict`**<br>Enforces strict ACPI compliance, bypassing buggy OEM routines (*proven fix from ChimeraOS Issue #892*). |
-| **Sudden resets / shutdowns** | Affected sessions ended without a clean shutdown, OOM, or NVMe error. The following boot reported `0x00080800`, which records a CF9 software reset and does not identify the root cause by itself. HHD was absent and UMA was 512 MiB during those failures. | **HHD at 12 W with boost off + `processor.max_cstate=1` + `idle=nomwait`**<br>Keeps a single power manager active and avoids deep CPU idle transitions. UMA is set to 6 GiB on the tested device to separate game VRAM exhaustion from platform resets. |
+| **Failure to return from suspend** | This was why APST was originally disabled altogether. ACPI behavior and the NM7A1 PS4 resume path are both candidates; the available logs do not isolate one cause. One 15-second `s2idle` cycle passed with the new setting. | **`acpi=strict` + a 15 ms NVMe APST bound**<br>Keeps the community ACPI mitigation and excludes NM7A1 PS4. Repeated and long-duration suspend tests remain outstanding. |
+| **Sudden resets / shutdowns** | Affected sessions ended without a clean shutdown, OOM, or NVMe error. The following boot reported `0x00080800`, which records a CF9 software reset and does not identify the root cause by itself. HHD was absent and UMA was 512 MiB during those failures. | **HHD as the only manager + an 8–12 W stability baseline + boost off + `processor.max_cstate=1` + `idle=nomwait`**<br>Avoids competing power managers and deep CPU idle transitions. The installer preserves the selected sustained TDP and disables only QAM boost. UMA is 6 GiB on the tested device. |
 | **Lexar NM790 suspend-resume failure and high idle temperature** | The original `default_ps_max_latency_us=0` workaround for resume failures disabled APST entirely and kept the controller active. The NM7A1 reports 5 ms entry + 10 ms exit for PS3, and 8 ms entry + 45 ms exit for PS4. | **`nvme_core.default_ps_max_latency_us=15000`**<br>Continues to exclude deep PS4 while allowing the 50 mW PS3 state. This lowers idle load without an I/O speed cap. PCIe link ASPM remains disabled for platform stability. |
 | **Touchscreen Registers in Wrong Places (Double Rotation)**<br>*(Touches land in rotated/mirrored positions instead of where you tapped)* | The native panel is portrait (`1080x1920`); KWin (Plasma Wayland) already applies the 90-degree output transform to touch coordinates. An additional udev `LIBINPUT_CALIBRATION_MATRIX` rotates them a second time, landing touches off-target. | **No calibration matrix**<br>Compositors handle the rotation natively, so the old `99-ayaneo-slide-touchscreen.rules` was removed. |
 | **Sleep Battery Drain via Joystick LEDs**<br>*(RGB joystick rings stay on or flash continuously while device is in sleep mode)* | OEM firmware defaults to active blinking during suspend (`[oem] keep off`). | **`udev/99-ayaneo-slide-led-suspend.rules`**<br>Sets `ATTR{suspend_mode}="off"`, automatically cutting power to ring LEDs during sleep. |
-| **Clocksource Watchdog Timeouts**<br>*(Kernel logs `Watchdog remote CPU read timed out` on core frequency changes)* | Variable TSC frequency shifts during APU governor changes. | **`tsc=reliable`**<br>Marks invariant TSC as a reliable clocksource across all 16 APU threads. |
- | **DCN Hubbub Lockup on Dock / External Display**<br>*(Kernel warning `REG_WAIT timeout in dcn31_program_compbuf_size` when plugging in USB-C dock or changing resolution)* | DCN 3.1.4 display compression buffer arbiter locks up on the Data Fabric during Scatter-Gather DMA reallocations. | **`amdgpu.sg_display=0`**<br>Disables non-contiguous Scatter-Gather display buffer allocations on APU, using dedicated VRAM to guarantee DCHUBBUB stability. |
+| **Clocksource watchdog warning**<br>*(`Watchdog remote CPU read timed out` in older logs)* | The current boot uses TSC and has no clocksource warning, but there is no A/B run proving the old warning came from frequency changes. | **`tsc=reliable` retained as a baseline**<br>This tells the kernel to trust TSC and can suppress watchdog-based fallback; it is a mitigation, not a root-cause fix. |
+| **DCN display-buffer warning**<br>*(`REG_WAIT timeout in dcn31_program_compbuf_size`)* | `amdgpu.sg_display=0` is active, but Linux 7.2.3 still logged one timeout during the current boot. There was no GPU reset, and the setting has not passed an A/B dock test. | **Unresolved; `amdgpu.sg_display=0` retained for testing**<br>The repository no longer claims that this option fixes the warning. Repeated dock tests with and without it remain outstanding. |
 | **eDP Panel Self Refresh instability**<br>*(Flashes or a black screen during display transitions)* | DCN 3.1.4 eDP PSR transitions can overlap GPU clock changes. | **`amdgpu.dcdebugmask=0x10`**<br>Disables PSR to reduce internal-panel link state changes. |
 | **3D / Proton launch stability** | The integrated GPU and NVMe share system-memory bandwidth, so IOMMU translation work can rise during 3D initialization. Available logs do not justify assigning the past resets to one specific hardware error. | **`iommu=pt`**<br>A conservative setting that reduces IOMMU translation overhead for integrated devices. |
-| **PCIe Link Voltage / Latency Droop Under Load**<br>*(Sudden resets or device drops during sustained disk I/O or power transitions)* | PCIe Active State Power Management (ASPM) causes link latency and voltage fluctuations on DRAM-less NVMe controllers and internal bridges. | **`pcie_aspm=off`**<br>Disables PCIe ASPM power saving states, ensuring continuous high-speed signal integrity under load. |
+| **PCIe link-state transitions** | `pcie_aspm=off` is active and the current read test produced no AER or NVMe errors. No controlled run with ASPM enabled has been completed, so the old voltage-droop explanation is unproven. | **`pcie_aspm=off` retained for testing**<br>Keeps link power-state transitions out of the current stability baseline. An A/B test is still needed, and disabling ASPM can increase idle power. |
 | **DRAM-less NVMe HMB use** | The NM7A1 uses host RAM for its mapping cache. It reports both its preferred and minimum HMB size as 8192 pages, and Linux allocates the full request. | **Keep the 32 MiB HMB enabled**<br>Live inspection confirms that all 32 MiB are active. The controller does not request or advertise a larger buffer, and disabling HMB would make address mapping less efficient. |
 
 ---
@@ -70,6 +70,8 @@ Expected values are `15000`, `APSTE: Enabled`, and `HSIZE: 8192` (32 MiB).
 | Kernel NVMe/AER errors | None | None |
 
 Temperature varies with ambient conditions and recent writes. After a download, internal SLC folding and garbage collection can keep the controller warm even after host writes stop.
+
+A sustained `O_DIRECT` read test held 3.5–3.9 GiB/s without an I/O cap or NVMe/AER error, but raised the controller to 81–82°C. The APST change removes wasted idle and intermittent-load power; it does not eliminate heat while the controller is continuously busy. See [physical-device test results](docs/TEST_RESULTS.md) for passed checks and remaining validation.
 
 ---
 
@@ -110,13 +112,17 @@ sudo systemctl reboot
 
 ## ↩️ Rollback / Uninstallation
 
-If you ever wish to revert all changes back to clean factory state:
+To remove the Limine options, udev rule, and legacy NVMe limiter artifacts installed by this repository, run:
 
 ```bash
 cd ayaneo-slide-linux-fixes
 sudo bash uninstall.sh
 sudo systemctl reboot
 ```
+
+When HHD is still running, the uninstaller keeps HHD and its conflicting-service masks in place so controller and power management are not removed underneath the active session.
+
+Current installs record each Limine option they add, and rollback removes only those recorded options so later user edits survive. A legacy `.orig` file is kept for manual recovery and is never copied wholesale by the uninstaller.
 
 ---
 
@@ -126,9 +132,9 @@ For maximum stability, battery life, and gaming performance, configure the follo
 
 | Setting | Recommended | Default | Description |
 | :--- | :---: | :---: | :--- |
-| **UMA Frame buffer Size** | **`6G`** or **`8G`** | Auto / 3G | Allocates fixed VRAM to Radeon 780M. Completely prevents Out-Of-Memory (OOM) crashes in modern AAA games (*Slide has 24GB RAM*). |
-| **fTPM** | **`Disabled`** | Enabled | Eliminates intermittent micro-stuttering and frame hitching known across AMD Zen 4 mobile APUs on Linux. |
-| **Core Watchdog Timer** | **`Disabled`** | Enabled | Prevents unintended hardware-level reboots caused by false-positive core watchdog stalls. |
+| **UMA Frame buffer Size** | **`6G` tested** | Auto / 3G | Reserves Radeon 780M memory and reduces game VRAM exhaustion while leaving 18 GiB for Linux. It does not guarantee that every game cannot OOM. |
+| **fTPM** | **Keep default** | Enabled | The collected logs contain no fTPM error. It may be used for disk encryption or device identity, so change it only if an fTPM-specific stall is reproduced. |
+| **Core Watchdog Timer** | **Keep default** | Enabled | The observed CF9 reset record does not prove a watchdog false positive. Do not disable it without an isolated A/B test. |
 | **IGD - AmdGop Output Priority** | **`LCD`** | CRT | Sets the internal LCD panel as primary video output, avoiding black-screen bugs on USB-C docks. |
 
 > For in-depth BIOS instructions, see [docs/BIOS_RECOMMENDATIONS.md](docs/BIOS_RECOMMENDATIONS.md).
@@ -137,25 +143,20 @@ For maximum stability, battery life, and gaming performance, configure the follo
 
 ## 🔋 Recommended Handheld TDP Profiles (Decky Loader)
 
-Install **SimpleDeckyTDP** or **PowerTools** via Decky Loader for real-time power capping in Steam Game Mode:
-
-* **On Battery**: Set TDP to **`15W – 18W`**
-  * The 7840U sweet spot for perf-per-watt. Prevents BMS overcurrent voltage cutoffs on the Slide's 46Wh battery while offering 1.5 to 2.5 hours of AAA gameplay.
-* **On AC Power (Docked)**: Set TDP to **`22W – 28W`**
-* **Manual GPU Clock**: Pin between **`1200MHz – 1600MHz`** to stabilize 1% low frame times and eliminate CPU/GPU power throttling.
+Start in HHD at **8–12 W with CPU boost off and GPU mode on auto**. The current power-saving profile on the test device is 8 W; earlier testing used 12 W. Raise TDP only after a 20–30 minute repeat of a workload that previously powered the machine off in about five minutes, such as Space Marine 2. AC power alone is not evidence that 22–28 W is stable on this unit.
 
 ---
 
 ## 🔍 Verification After Installation
 
-To verify that all fixes are active on your running system:
+To verify the installed settings on your running system:
 
 ```bash
 # 1. Verify kernel parameters
 cat /proc/cmdline
 # Expected: ... acpi=strict processor.max_cstate=1 idle=nomwait nvme_core.default_ps_max_latency_us=15000 tsc=reliable
 
-# 2. Verify C-state limitation (only POLL and C1 should be active)
+# 2. Verify C-state limitation (only POLL and C1 should be exposed)
 ls /sys/devices/system/cpu/cpu0/cpuidle/
 # Expected: state0 (POLL) and state1 (C1). C2/C3 states are disabled.
 
@@ -180,6 +181,7 @@ cat /sys/class/leds/ayaneo:rgb:joystick_rings/suspend_mode
 ## 📚 Technical Documentation
 
 * [docs/HARDWARE_ANALYSIS.md](docs/HARDWARE_ANALYSIS.md) — Measured NVMe power states, HMB, temperatures, reset-log evidence, and controller stack analysis.
+* [docs/TEST_RESULTS.md](docs/TEST_RESULTS.md) — Reboot, APST, HMB, suspend/resume, direct-read stress results, and known limits.
 * [docs/BIOS_RECOMMENDATIONS.md](docs/BIOS_RECOMMENDATIONS.md) — Step-by-step BIOS tuning guide.
 * [README.ko.md](README.ko.md) — 한국어 가이드 및 상세 설명서.
 
@@ -194,7 +196,7 @@ cat /sys/class/leds/ayaneo:rgb:joystick_rings/suspend_mode
 ## 🤝 Acknowledgements & References
 
 * [ChimeraOS Issue #892](https://github.com/ChimeraOS/chimeraos/issues/892) — For uncovering the `acpi=strict` breakthrough for AYANEO Slide / Antec Core HS.
-* [Valve Software SteamOS Issue #2757](https://github.com/ValveSoftware/SteamOS/issues/2757) — Research into AMD Zen 4 Data Fabric Sync Flood hardware resets.
+* [Valve Software SteamOS Issue #2757](https://github.com/ValveSoftware/SteamOS/issues/2757) — Community investigation of AMD platform resets.
 * [Bazzite Issue #5596 & #5508](https://github.com/ublue-os/bazzite/issues/5596) — Handheld sleep state and input mapping investigations.
 * [ShadowBlip / ayaneo-platform](https://github.com/ShadowBlip/ayaneo-platform) — Linux kernel platform driver for AYANEO devices.
 

@@ -32,19 +32,37 @@ else
     CURRENT_USER="${CURRENT_USER:-$USER}"
 fi
 USER_HOME=$(getent passwd "$CURRENT_USER" | cut -d: -f6)
+CURRENT_UID=$(id -u "$CURRENT_USER")
+STATE_DIR=/var/lib/ayaneo-slide-linux-fixes
+install -d -m 755 "$STATE_DIR"
+ADDED_PARAMS_FILE="$STATE_DIR/limine-added-params"
+
+# Control units owned by the logged-in user's systemd manager. SteamOS Manager
+# ships both system and user units on CachyOS; masking only the system unit left
+# the user unit D-Bus activatable and it retried five times on every login.
+user_systemctl() {
+    local runtime_dir="/run/user/${CURRENT_UID}"
+    [ -S "${runtime_dir}/bus" ] || return 1
+    sudo -u "$CURRENT_USER" -- env \
+        XDG_RUNTIME_DIR="$runtime_dir" \
+        DBUS_SESSION_BUS_ADDRESS="unix:path=${runtime_dir}/bus" \
+        systemctl --user "$@"
+}
 
 # 1. Disable unstable background services
 echo -e "\n${BLUE}[1/6] Power Management (HHD) & Unstable Daemons...${NC}"
 if systemctl is-enabled scx_loader 2>/dev/null | grep -q "enabled"; then
+    touch "$STATE_DIR/scx_loader.was_enabled"
     systemctl disable --now scx_loader 2>/dev/null || true
     echo -e "${GREEN}✓ scx_loader disabled. Reverted to standard Linux EEVDF scheduler.${NC}"
 else
     echo -e "${GREEN}✓ scx_loader is already disabled.${NC}"
 fi
 
-# HHD (Handheld Daemon) is the required power manager: fan curves, TDP limits,
-# controller and gyro, with official AYANEO Slide support. Without TDP limits,
-# heavy 3D transients one-shot the 46Wh BMS into hard power-offs. It conflicts
+# HHD (Handheld Daemon) is the required TDP/controller manager. The current
+# Slide stack does not expose a PWM-controllable fan to HHD. The historical
+# hard-power-off sessions happened without HHD managing the power budget. HHD
+# conflicts
 # with steamos-manager (both claim the same controls), so the policy is:
 # HHD present -> mask steamos-manager (plain disable is bypassed by Steam's
 # D-Bus activation); HHD absent -> keep steamos-manager as the only power
@@ -55,24 +73,52 @@ if ! pgrep -f "bin/hhd" >/dev/null 2>&1 && ! sudo -u "$CURRENT_USER" -- bash -lc
     sudo -u "$CURRENT_USER" -- bash -c 'curl -L https://raw.githubusercontent.com/hhd-dev/hhd/master/install.sh | bash' || true
 fi
 systemctl enable --now "hhd_local@${CURRENT_USER}" 2>/dev/null || true
-# The HHD overlay UI is a bundled binary that dlopens libfuse.so.2; CachyOS
-# ships fuse3 only, and without fuse2 the overlay thread dies on every boot.
+# The HHD overlay AppImage requires libfuse.so.2. Its daemon, controller and TDP
+# paths remain independent if the optional overlay later exits with gamescope.
 pacman -S --needed --noconfirm fuse2 2>/dev/null || true
 
 if systemctl is-active --quiet "hhd_local@${CURRENT_USER}"; then
-    if [ "$(readlink -f /etc/systemd/system/steamos-manager.service 2>/dev/null)" != "/dev/null" ]; then
-        systemctl disable --now steamos-manager 2>/dev/null || true
-        systemctl mask steamos-manager
-        echo -e "${GREEN}✓ HHD active - steamos-manager masked (conflicts over TDP/fan controls).${NC}"
+    systemctl disable --now steamos-manager.service 2>/dev/null || true
+    systemctl mask --force steamos-manager.service 2>/dev/null || true
+    user_systemctl disable --now steamos-manager.service 2>/dev/null || true
+    user_systemctl mask --force steamos-manager.service 2>/dev/null || true
+    user_systemctl reset-failed steamos-manager.service 2>/dev/null || true
+    echo -e "${GREEN}✓ HHD active - system and user steamos-manager units masked.${NC}"
+
+    # Preserve the user's selected sustained TDP, but remove the transient QAM
+    # boost headroom used during the historical hard-power-off workload.
+    HHDCTL="$USER_HOME/.local/share/hhd/venv/bin/hhdctl"
+    if [ ! -x "$HHDCTL" ]; then
+        HHDCTL=$(sudo -u "$CURRENT_USER" -- bash -lc 'command -v hhdctl' 2>/dev/null || true)
+    fi
+    if [ -x "$HHDCTL" ]; then
+        for _ in {1..10}; do
+            [ -S /run/hhd/api ] && break
+            sleep 1
+        done
+        if [ -S /run/hhd/api ] && "$HHDCTL" set tdp.qam.boost=false >/dev/null 2>&1 && \
+           [ "$("$HHDCTL" get tdp.qam.boost --values --sep='' 2>/dev/null)" = false ]; then
+            echo -e "${GREEN}✓ HHD QAM boost disabled; selected sustained TDP preserved.${NC}"
+        else
+            echo -e "${YELLOW}[!] HHD is active but QAM boost could not be verified. Check with: hhdctl get tdp.qam.boost${NC}"
+        fi
     else
-        echo -e "${GREEN}✓ HHD active - steamos-manager already masked.${NC}"
+        echo -e "${YELLOW}[!] HHD is active but hhdctl was not found; QAM boost was not changed.${NC}"
     fi
 else
-    if [ "$(readlink -f /etc/systemd/system/steamos-manager.service 2>/dev/null)" = "/dev/null" ]; then
-        systemctl unmask steamos-manager
+    # CachyOS presets the user unit. Prefer it so only one instance owns the
+    # D-Bus name; use the system unit only when no user manager is available.
+    systemctl disable --now steamos-manager.service 2>/dev/null || true
+    systemctl unmask steamos-manager.service 2>/dev/null || true
+    if user_systemctl unmask steamos-manager.service 2>/dev/null && \
+       user_systemctl enable --now steamos-manager.service 2>/dev/null; then
+        STEAMOS_MANAGER_ACTIVE=user
+    else
+        systemctl enable --now steamos-manager.service 2>/dev/null || true
+        STEAMOS_MANAGER_ACTIVE=system
     fi
-    systemctl enable --now steamos-manager 2>/dev/null || true
-    if systemctl is-active --quiet steamos-manager; then
+    if { [ "$STEAMOS_MANAGER_ACTIVE" = user ] && user_systemctl is-active --quiet steamos-manager.service; } || \
+       { [ "$STEAMOS_MANAGER_ACTIVE" = system ] && systemctl is-active --quiet steamos-manager.service; }; then
         echo -e "${YELLOW}[!] HHD unavailable - steamos-manager active as sole power manager. Install HHD before gaming on battery.${NC}"
     else
         echo -e "${RED}[ERROR] Neither HHD nor steamos-manager is active; refusing to leave the system without a power manager.${NC}"
@@ -83,6 +129,7 @@ fi
 # 2. Inject verified kernel boot parameters
 echo -e "\n${BLUE}[2/6] Configuring Bootloader Parameters...${NC}"
 LIMINE_DEFAULT="/etc/default/limine"
+BOOT_CONFIGURED=false
 
 REQUIRED_PARAMS=(
     "acpi=strict"
@@ -106,6 +153,14 @@ if [ -f "$LIMINE_DEFAULT" ]; then
         echo -e "  + Created backup: ${LIMINE_DEFAULT}.orig"
     fi
 
+    # Remember whether the desired APST value predated this run. The
+    # normalization below removes every old value before adding one canonical
+    # token, but the uninstaller must not remove a value it did not introduce.
+    NVME_15000_WAS_PRESENT=false
+    if grep -Eq '(^|[[:space:]])nvme_core\.default_ps_max_latency_us=15000([[:space:]\"]|$)' "$LIMINE_DEFAULT"; then
+        NVME_15000_WAS_PRESENT=true
+    fi
+
     # Clean up obsolete or invalid parameters
     sed -i -E "s/[[:space:]]*amdgpu\.gfxoff=0//g" "$LIMINE_DEFAULT"
     # max_host_mem_size_mb was removed upstream in Linux 6.9: kernels >= 6.9
@@ -117,19 +172,29 @@ if [ -f "$LIMINE_DEFAULT" ]; then
     sed -i -E "s/[[:space:]]*nvme_core\.default_ps_max_latency_us=[^[:space:]\"]+//g" "$LIMINE_DEFAULT"
 
     for p in "${REQUIRED_PARAMS[@]}"; do
-        if grep -q "$p" "$LIMINE_DEFAULT"; then
+        if grep -Fq -- "$p" "$LIMINE_DEFAULT"; then
             echo -e "  ${GREEN}✓${NC} $p (already present)"
         else
             sed -i -E "s/(KERNEL_CMDLINE\[default\]\+?=\".*)(\")/\1 $p\2/" "$LIMINE_DEFAULT"
-            echo -e "  ${YELLOW}+${NC} Added $p"
+            if grep -Fq -- "$p" "$LIMINE_DEFAULT"; then
+                if [ "$p" != "nvme_core.default_ps_max_latency_us=15000" ] || ! $NVME_15000_WAS_PRESENT; then
+                    grep -Fxq -- "$p" "$ADDED_PARAMS_FILE" 2>/dev/null || printf '%s\n' "$p" >> "$ADDED_PARAMS_FILE"
+                fi
+                echo -e "  ${YELLOW}+${NC} Added $p"
+            else
+                echo -e "${RED}[ERROR] Could not add $p to $LIMINE_DEFAULT.${NC}"
+                exit 1
+            fi
         fi
     done
 
     echo -e "  Updating bootloader configuration..."
     limine-update
+    BOOT_CONFIGURED=true
     echo -e "${GREEN}✓ Limine bootloader successfully updated.${NC}"
 else
-    echo -e "${YELLOW}[!] /etc/default/limine not found. If using GRUB or systemd-boot, add:${NC}"
+    echo -e "${YELLOW}[!] /etc/default/limine not found. Persistent boot configuration was not changed.${NC}"
+    echo -e "${YELLOW}    Add these options using your bootloader's documented method:${NC}"
     echo -e "    ${BOLD}${REQUIRED_PARAMS[*]}${NC}"
 fi
 
@@ -230,13 +295,18 @@ echo -e "${GREEN}✓ NVMe APST limited to 15000 us; legacy write limits removed.
 echo -e "\n${CYAN}==============================================================================${NC}"
 echo -e "${BOLD}${GREEN}  Installation Complete!  ${NC}"
 echo -e "${CYAN}==============================================================================${NC}"
-echo -e "Applied fixes:"
-echo -e "  1. ${BOLD}Power Management${NC}: HHD (Handheld Daemon) - TDP/fan/controller; steamos-manager conflict-handled"
-echo -e "  2. ${BOLD}Sleep/Wake Freeze Fix${NC}: acpi=strict & shallow-only NVMe APST (15000 us)"
-echo -e "  3. ${BOLD}CPU Idle-State Stability${NC}: processor.max_cstate=1 & idle=nomwait"
-echo -e "  4. ${BOLD}iGPU / PCIe Stability${NC}: iommu=pt & pcie_aspm=off"
-echo -e "  5. ${BOLD}Display DCN / PSR Stability Fix${NC}: amdgpu.sg_display=0 & amdgpu.dcdebugmask=0x10"
+echo -e "Applied settings:"
+echo -e "  1. ${BOLD}Power Management${NC}: HHD TDP/controller, QAM boost off; both steamos-manager units conflict-handled"
+echo -e "  2. ${BOLD}Suspend Mitigation${NC}: acpi=strict & shallow-only NVMe APST (15000 us)"
+echo -e "  3. ${BOLD}CPU Idle Mitigation${NC}: processor.max_cstate=1 & idle=nomwait (A/B test pending)"
+echo -e "  4. ${BOLD}iGPU / PCIe Test Baseline${NC}: iommu=pt & pcie_aspm=off"
+echo -e "  5. ${BOLD}Display Mitigations${NC}: amdgpu.sg_display=0 & amdgpu.dcdebugmask=0x10 (DCN warning still under test)"
 echo -e "  6. ${BOLD}Joystick LED Auto-Off During Sleep${NC}"
 echo -e "  7. ${BOLD}NVMe Controller Idle Load Fix${NC}: 15000 us APST ceiling, no I/O cap"
-echo -e "\n${YELLOW}Please reboot your system to apply all new kernel parameters:${NC}"
-echo -e "  ${BOLD}sudo systemctl reboot${NC}\n"
+if $BOOT_CONFIGURED; then
+    echo -e "\n${YELLOW}Please reboot your system to apply all new kernel parameters:${NC}"
+    echo -e "  ${BOLD}sudo systemctl reboot${NC}\n"
+else
+    echo -e "\n${RED}Runtime fixes are active, but boot parameters are not persistent.${NC}"
+    echo -e "${YELLOW}Configure your bootloader before rebooting.${NC}\n"
+fi

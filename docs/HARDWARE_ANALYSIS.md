@@ -8,7 +8,7 @@ This document records the hardware data and logs observed on the test device. It
 - 24 GiB LPDDR5X, UMA frame buffer set to 6 GiB
 - Lexar SSD NM7A1 2TB, firmware 9742, Maxio MAP1602 (`1d97`), DRAM-less
 - CachyOS Deckify, Linux `7.2.3-1-cachyos-deckify`
-- HHD active at 12 W with boost disabled
+- HHD active; observed profiles ranged from 8 W to 12 W with boost disabled
 
 ## NVMe controller power and temperature
 
@@ -61,20 +61,20 @@ The next boot reported `[0x00080800]: software wrote 0x6 to reset control regist
 
 The installed mitigations remain conservative:
 
-- HHD is the sole TDP/fan/controller manager; `steamos-manager` is masked while HHD is active.
-- HHD is configured to 12 W with boost disabled on the test device.
-- `processor.max_cstate=1` and `idle=nomwait` avoid deep CPU idle transitions.
+- HHD is the sole TDP/controller manager; both system and user `steamos-manager` units are masked while HHD is active. The current driver stack exposes no PWM-controllable fan to HHD.
+- The stability baseline is 8–12 W. The installer preserves the user's sustained HHD TDP but disables QAM boost; on the current 8 W profile, HHD then reports fast/slow/skin/STAPM all at 8 W.
+- `processor.max_cstate=1` and `idle=nomwait` avoid deep CPU idle transitions. They can increase APU and chassis idle power, so they remain candidates for an isolated A/B test rather than proven reset fixes.
 - `scx_loader` is disabled in favor of the kernel's standard scheduler.
-- `tsc=reliable` avoids clocksource watchdog switching on this configuration.
+- `tsc=reliable` keeps TSC selected on this configuration. It can suppress watchdog-based fallback and has not been isolated as the cause of the historical warning.
 
 These settings reduce variables and power transients. They do not turn the reset record into proof of one hardware failure mode.
 
 ## GPU, display, and PCIe mitigations
 
 - `iommu=pt` reduces translation overhead for integrated devices.
-- `amdgpu.sg_display=0` avoids scatter-gather display buffers on the integrated GPU.
+- `amdgpu.sg_display=0` is active, but the current Linux 7.2.3 boot still logged one `REG_WAIT timeout` in `dcn31_program_compbuf_size`. There was no GPU reset. This setting is retained for an A/B dock test and is not considered a verified fix.
 - `amdgpu.dcdebugmask=0x10` disables panel self refresh on the internal eDP panel.
-- `pcie_aspm=off` keeps PCIe link-level low-power transitions disabled. NVMe APST remains independently active with the 15 ms bound.
+- `pcie_aspm=off` keeps PCIe link-level low-power transitions disabled. NVMe APST remains independently active with the 15 ms bound. No ASPM-on A/B run has been completed, so this remains part of the test baseline rather than a verified fix; it can also increase idle power.
 - GPU DPM stays on `auto`; the installer removes the old udev rule that forced `high` performance.
 
 These are platform-stability mitigations. The repository does not claim that each setting independently fixes a specific reset without a reproducible A/B test.
@@ -83,7 +83,7 @@ These are platform-stability mitigations. The repository does not claim that eac
 
 HHD has device support for the AYANEO Slide and owns the physical controller, gyro, back buttons, and emulated gamepad. Running InputPlumber at the same time caused repeated `Device or resource busy` failures while both stacks tried to own controller emulation.
 
-The installer therefore masks `inputplumber` when HHD is active. If HHD cannot start, it keeps InputPlumber available instead of leaving the machine without a controller layer. It applies the same fallback rule to `steamos-manager` for power management.
+The installer therefore masks `inputplumber` when HHD is active. If HHD cannot start, it keeps InputPlumber available instead of leaving the machine without a controller layer. It masks both the system and user `steamos-manager` units because the user unit remains D-Bus activatable even when the system unit is masked. Without HHD, it restores one SteamOS Manager instance rather than starting both.
 
 ## Verification
 
