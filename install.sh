@@ -23,8 +23,15 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-CURRENT_USER="${SUDO_USER:-$USER}"
-USER_HOME=$(eval echo "~$CURRENT_USER")
+if [ -n "${SUDO_USER:-}" ]; then
+    CURRENT_USER="$SUDO_USER"
+elif [ -n "${PKEXEC_UID:-}" ]; then
+    CURRENT_USER=$(id -nu "$PKEXEC_UID")
+else
+    CURRENT_USER=$(loginctl list-users --no-legend 2>/dev/null | awk '$1 >= 1000 { print $2; exit }')
+    CURRENT_USER="${CURRENT_USER:-$USER}"
+fi
+USER_HOME=$(getent passwd "$CURRENT_USER" | cut -d: -f6)
 
 # 1. Disable unstable background services
 echo -e "\n${BLUE}[1/6] Power Management (HHD) & Unstable Daemons...${NC}"
@@ -47,12 +54,12 @@ if ! pgrep -f "bin/hhd" >/dev/null 2>&1 && ! sudo -u "$CURRENT_USER" -- bash -lc
     echo -e "${YELLOW}[!] HHD not found - installing Handheld Daemon (official Slide support)...${NC}"
     sudo -u "$CURRENT_USER" -- bash -c 'curl -L https://raw.githubusercontent.com/hhd-dev/hhd/master/install.sh | bash' || true
 fi
-systemctl enable "hhd_local@${CURRENT_USER}" 2>/dev/null || true
+systemctl enable --now "hhd_local@${CURRENT_USER}" 2>/dev/null || true
 # The HHD overlay UI is a bundled binary that dlopens libfuse.so.2; CachyOS
 # ships fuse3 only, and without fuse2 the overlay thread dies on every boot.
 pacman -S --needed --noconfirm fuse2 2>/dev/null || true
 
-if pgrep -f "bin/hhd" >/dev/null 2>&1; then
+if systemctl is-active --quiet "hhd_local@${CURRENT_USER}"; then
     if [ "$(readlink -f /etc/systemd/system/steamos-manager.service 2>/dev/null)" != "/dev/null" ]; then
         systemctl disable --now steamos-manager 2>/dev/null || true
         systemctl mask steamos-manager
@@ -109,7 +116,7 @@ if [ -f "$LIMINE_DEFAULT" ]; then
     done
 
     echo -e "  Updating bootloader configuration..."
-    limine-update || true
+    limine-update
     echo -e "${GREEN}✓ Limine bootloader successfully updated.${NC}"
 else
     echo -e "${YELLOW}[!] /etc/default/limine not found. If using GRUB or systemd-boot, add:${NC}"
@@ -127,14 +134,13 @@ cat << 'EOF' > /etc/udev/rules.d/99-ayaneo-slide-led-suspend.rules
 ACTION=="add|change", KERNEL=="ayaneo:rgb:joystick_rings", SUBSYSTEM=="leds", ATTR{suspend_mode}="off"
 EOF
 
-cat << 'EOF' > /etc/udev/rules.d/99-amdgpu-dpm-performance.rules
-# Lock AMD GPU DPM performance level to high to prevent Data Fabric Sync Flood
-ACTION=="add|change", SUBSYSTEM=="drm", KERNEL=="card[0-9]*", ATTR{device/power_dpm_force_performance_level}="high"
-EOF
+# HHD owns the APU power budget and GPU frequency policy. A permanent "high"
+# DPM lock bypasses that policy, raises idle heat, and increases load transients.
+rm -f /etc/udev/rules.d/99-amdgpu-dpm-performance.rules
 
 udevadm control --reload-rules
 udevadm trigger
-echo -e "${GREEN}✓ LED sleep auto-off & GPU DPM stability rules installed.${NC}"
+echo -e "${GREEN}✓ LED sleep auto-off installed; GPU DPM delegated to HHD.${NC}"
 
 # 4. Controller & Platform Services
 echo -e "\n${BLUE}[4/6] Checking Controller & Platform Drivers...${NC}"
@@ -143,7 +149,7 @@ echo -e "\n${BLUE}[4/6] Checking Controller & Platform Drivers...${NC}"
 # controller fails with 'Device or resource busy' every 3s, killing the HHD
 # overlay (its trigger rides on the emulated controller). HHD has official
 # Slide support (gyro, back buttons, QAM), so it wins when present.
-if pgrep -f "bin/hhd" >/dev/null 2>&1; then
+if systemctl is-active --quiet "hhd_local@${CURRENT_USER}"; then
     if [ "$(readlink -f /etc/systemd/system/inputplumber.service 2>/dev/null)" != "/dev/null" ]; then
         systemctl disable --now inputplumber 2>/dev/null || true
         systemctl mask inputplumber
@@ -168,10 +174,10 @@ done
 
 for d in /sys/class/drm/card*/device/power_dpm_force_performance_level; do
     if [ -f "$d" ]; then
-        echo "high" > "$d" 2>/dev/null || true
+        echo "auto" > "$d" 2>/dev/null || true
     fi
 done
-echo -e "${GREEN}✓ AMD GPU DPM performance level set to high.${NC}"
+echo -e "${GREEN}✓ AMD GPU DPM performance level set to auto (managed inside HHD's TDP limit).${NC}"
 
 if [ -f "/sys/class/leds/ayaneo:rgb:joystick_rings/suspend_mode" ]; then
     echo "off" > /sys/class/leds/ayaneo:rgb:joystick_rings/suspend_mode 2>/dev/null || true
@@ -197,9 +203,10 @@ RELEASE_mC=70000
 CLAMP_WBPS=8000000
 CEIL_WBPS=25000000
 STATE=ok
+TARGET_WBPS=$CEIL_WBPS
 CEIL_DISK=$(findmnt -n -o SOURCE / | sed 's/\[.*//; s/p[0-9]\+$//')
 DEV_MM=$(cat "/sys/class/block/$(basename "$CEIL_DISK")/dev")
-APP_CG=$(ls -d /sys/fs/cgroup/user.slice/user-*.slice/user@*.service/app.slice 2>/dev/null | head -1)
+APP_CG=
 
 log() { logger -t ayaneo-nvme-guard "$1"; }
 nvme_temp() {
@@ -211,8 +218,18 @@ nvme_temp() {
     return 1
 }
 set_wbps() {
-    [ -n "$APP_CG" ] && [ -n "$DEV_MM" ] || return 1
-    echo "$DEV_MM rbps=max wbps=$1 riops=max wiops=max" > "$APP_CG/io.max"
+    [ -n "$APP_CG" ] && [ -w "$APP_CG/io.max" ] && [ -n "$DEV_MM" ] || return 1
+    { echo "$DEV_MM rbps=max wbps=$1 riops=max wiops=max" > "$APP_CG/io.max"; } 2>/dev/null
+}
+ensure_wbps() {
+    if [ -z "$APP_CG" ] || [ ! -e "$APP_CG/io.max" ]; then
+        APP_CG=$(ls -d /sys/fs/cgroup/user.slice/user-*.slice/user@*.service/app.slice 2>/dev/null | head -1)
+    fi
+    [ -n "$APP_CG" ] || return 1
+    if ! grep -q "^$DEV_MM .*wbps=$TARGET_WBPS\([[:space:]]\|$\)" "$APP_CG/io.max" 2>/dev/null; then
+        set_wbps "$TARGET_WBPS" || return 1
+        log "applied ${TARGET_WBPS} B/s write limit to $APP_CG"
+    fi
 }
 
 # Clear legacy caps from systemd-manager-based versions (v2/v3) and apply
@@ -223,26 +240,26 @@ for SLICE in user.slice app.slice; do
 done
 rm -f /etc/systemd/system.control/user.slice.d/50-IOWriteBandwidthMax.conf
 rm -f /etc/systemd/system.control/app.slice.d/50-IOWriteBandwidthMax.conf
-set_wbps "$CEIL_WBPS" && log "applied ${CEIL_WBPS} B/s write ceiling to $APP_CG (reads unlimited, session.slice untouched)"
+ensure_wbps || true
 
 log "started: device=$CEIL_DISK($DEV_MM) engage=$((ENGAGE_mC/1000))C release=$((RELEASE_mC/1000))C clamp=${CLAMP_WBPS}"
 while sleep 5; do
-    # app.slice does not exist at multi-user.target time (user session not
-    # up yet), so pick up the cgroup once it appears and apply the ceiling.
-    if [ -z "$ENSURED" ]; then
-        [ -n "$APP_CG" ] || APP_CG=$(ls -d /sys/fs/cgroup/user.slice/user-*.slice/user@*.service/app.slice 2>/dev/null | head -1)
-        if [ -n "$APP_CG" ] && set_wbps "$CEIL_WBPS"; then
-            ENSURED=1
-            log "write ceiling applied to $APP_CG (user session up)"
-        fi
-    fi
+    # app.slice is created by the user manager and can be recreated after a
+    # logout or gamescope restart. Verify the live cgroup on every pass.
+    ensure_wbps || true
     t=$(nvme_temp) || continue
     if [ "$t" -ge "$ENGAGE_mC" ] && [ "$STATE" != "hot" ]; then
-        set_wbps "$CLAMP_WBPS" && STATE=hot
-        log "NVMe at $((t/1000))C - app.slice write bandwidth clamped to $CLAMP_WBPS"
+        TARGET_WBPS=$CLAMP_WBPS
+        if ensure_wbps; then
+            STATE=hot
+            log "NVMe at $((t/1000))C - app.slice write bandwidth clamped to $CLAMP_WBPS"
+        fi
     elif [ "$t" -le "$RELEASE_mC" ] && [ "$STATE" != "ok" ]; then
-        set_wbps "$CEIL_WBPS" && STATE=ok
-        log "NVMe at $((t/1000))C - clamp released, ceiling back to $CEIL_WBPS"
+        TARGET_WBPS=$CEIL_WBPS
+        if ensure_wbps; then
+            STATE=ok
+            log "NVMe at $((t/1000))C - clamp released, ceiling back to $CEIL_WBPS"
+        fi
     fi
 done
 EOF
