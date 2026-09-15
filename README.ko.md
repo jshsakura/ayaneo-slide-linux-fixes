@@ -35,7 +35,7 @@
 | **절전 모드 진입 후 복귀 실패** | 이 문제 때문에 처음에는 NVMe APST를 통째로 껐음. ACPI와 NM7A1 PS4 복귀 경로가 모두 후보이며 현재 로그만으로 하나를 단정하지 않음. 새 설정에서 15초 `s2idle` 1회는 정상 복귀함. | **`acpi=strict` + NVMe APST 15ms 한도**<br>커뮤니티에서 사용된 ACPI 완화책을 유지하고 NM7A1 PS4를 제외함. 장시간·반복 슬립 검증은 아직 남아 있음. |
 | **갑작스러운 재부팅 / 셧다운** | 실제 고장 세션은 정상 종료·OOM·NVMe 오류 없이 로그가 끊겼음. 다음 부팅의 `0x00080800`은 CF9 소프트웨어 리셋 기록이라 원인을 단독으로 증명하지 못함. 당시 HHD가 없고 UMA는 512MiB였음. | **HHD 단독 사용 + 이 기체의 12W 기준 + boost off + `processor.max_cstate=1` + `idle=nomwait`**<br>전력 관리자를 하나만 유지하고 깊은 CPU idle 전환을 피함. 설치기는 사용자가 선택한 지속 TDP는 보존하고 QAM boost만 끔. UMA는 이 기체에서 6GiB로 설정해 게임 VRAM 부족도 분리함. |
 | **렉사 NM790 절전 복귀 실패와 높은 대기 온도** | 절전 복귀 실패를 피하려고 넣은 `default_ps_max_latency_us=0`이 APST를 통째로 꺼 컨트롤러를 계속 활성 상태로 둠. NM7A1의 PS3는 진입 5ms + 복귀 10ms, PS4는 진입 8ms + 복귀 45ms로 보고됨. | **`nvme_core.default_ps_max_latency_us=15000`**<br>원래 대응 목적대로 딥슬립 PS4는 계속 배제하면서 50mW PS3만 허용. I/O 속도 제한 없이 대기 부하를 낮춤. PCIe 링크 ASPM은 기체 안정성을 위해 계속 비활성화. |
-| **터치 입력이 엉뚱한 곳에 찍힘 (이중 회전)**<br>*(터치한 위치가 아닌 회전된 위치에 입력됨)* | 물리 패널이 1080x1920 세로(Portrait) 규격이라 KWin(Plasma Wayland)이 가로 출력 회전(output transform)을 터치 좌표에 자동 적용함. 여기에 udev `LIBINPUT_CALIBRATION_MATRIX` 90도 회전 매트릭스를 얹으면 좌표가 한 번 더 회전하여 반대편에 입력됨. | **캘리브레이션 매트릭스 미적용**<br>회전 보정은 컴포지터가 자체 처리하므로 이전 `99-ayaneo-slide-touchscreen.rules`는 제거됨. |
+| **구버전 터치 규칙 정리** | 순정 CachyOS Plasma Wayland는 세로 규격(`1080x1920`) 패널을 이미 회전하고 터치 좌표도 정상 처리함. 이 레포의 초기 버전만 불필요한 `LIBINPUT_CALIBRATION_MATRIX`를 추가해 이중 회전을 일으켰음. | **순정 설치에는 변경 없음**<br>설치기는 `ae559c0` 이전 레포 버전이 남긴 `99-ayaneo-slide-touchscreen.rules`만 제거함. |
 | **절전 중 조이스틱 RGB LED 배터리 방전**<br>*(기기가 절전 상태인데도 조이스틱 테두리 링 LED가 계속 깜빡이며 배터리를 소모함)* | 순정 펌웨어 기본값이 절전 중 점멸(`[oem] keep off`)로 되어 있음. | **`udev/99-ayaneo-slide-led-suspend.rules`**<br>절전 모드 진입 시 LED 전원을 완전히 끄는 `ATTR{suspend_mode}="off"` 규칙 적용. |
 | **클럭소스 워치독 경고**<br>*(과거 로그의 `Watchdog remote CPU read timed out`)* | 현재 부팅은 TSC를 사용하며 클럭소스 경고가 없지만, 과거 경고가 주파수 변화 때문이라는 A/B 근거는 없음. | **기준 설정으로 `tsc=reliable` 유지**<br>커널에 TSC를 신뢰하라고 지시해 워치독 기반 대체 전환을 억제할 수 있으므로 원인 해결이 아닌 완화책임. |
 | **DCN 디스플레이 버퍼 경고**<br>*(`REG_WAIT timeout in dcn31_program_compbuf_size`)* | `amdgpu.sg_display=0`이 실제 적용됐는데도 현재 Linux 7.2.3 부팅에서 timeout이 한 번 남았음. GPU 리셋은 없었고 도크 A/B 시험도 아직 완료하지 않음. | **미해결; 시험 목적으로 `amdgpu.sg_display=0` 유지**<br>이 옵션이 경고를 해결한다고 더는 주장하지 않음. 옵션을 켠 상태와 끈 상태의 도크 반복 시험이 남아 있음. |
@@ -105,7 +105,7 @@ sudo systemctl reboot
 2. **안전 백업**: `/etc/default/limine`을 `/etc/default/limine.orig`로 자동 백업합니다.
 3. **커널 파라미터 주입**: `acpi=strict`, `processor.max_cstate=1`, `idle=nomwait`, `nvme_core.default_ps_max_latency_us=15000`, `tsc=reliable`, `amdgpu.sg_display=0`, `amdgpu.dcdebugmask=0x10`, `iommu=pt`, `pcie_aspm=off`를 부트로더에 안전하게 추가하고 무효 파라미터(`amdgpu.gfxoff=0`)를 정리합니다.
 4. **스케줄러 안정화**: 실험적인 BPF CPU 스케줄러(`scx_loader`)를 비활성화하고 원상 복구를 위해 기존 활성 상태를 기록합니다.
-5. **하드웨어 udev 룰 등록**: 조이스틱 LED 절전 자동 소등 룰을 시스템에 등록합니다. (터치스크린 가로 보정은 컴포지터가 자체 처리하므로 룰을 별도로 설치하지 않습니다.)
+5. **하드웨어 udev 룰 등록**: 조이스틱 LED 절전 자동 소등 룰을 시스템에 등록합니다. 터치 회전은 컴포지터가 이미 처리하며, 설치기는 초기 레포 버전의 오래된 터치 규칙만 제거합니다.
 6. **부트로더 갱신**: `limine-update`를 실행하여 새로운 커널 설정과 initramfs를 빌드합니다.
 7. **NVMe 전력 관리**: 실행 중인 컨트롤러의 PM QoS도 15ms로 즉시 갱신하고, 구버전의 `ayaneo-nvme-guard`와 `app.slice` 쓰기 제한을 제거합니다.
 

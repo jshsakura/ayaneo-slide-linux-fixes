@@ -212,7 +212,10 @@ fi
 echo -e "\n${BLUE}[3/6] Installing Udev Rules...${NC}"
 # Do not install a touchscreen LIBINPUT_CALIBRATION_MATRIX rule: KWin (Plasma
 # Wayland) already applies the panel's 90-degree output transform to touch
-# coordinates, so an extra udev matrix double-rotates touches off-target.
+# coordinates, so an extra udev matrix double-rotates touches off-target. Only
+# remove the stale rule installed by this repository before commit ae559c0;
+# a fresh CachyOS installation needs no touchscreen change.
+rm -f /etc/udev/rules.d/99-ayaneo-slide-touchscreen.rules
 
 cat << 'EOF' > /etc/udev/rules.d/99-ayaneo-slide-led-suspend.rules
 # Turn off joystick RGB LEDs during sleep to save battery
@@ -225,7 +228,7 @@ rm -f /etc/udev/rules.d/99-amdgpu-dpm-performance.rules
 
 udevadm control --reload-rules
 udevadm trigger
-echo -e "${GREEN}✓ LED sleep auto-off installed; GPU DPM delegated to HHD.${NC}"
+echo -e "${GREEN}✓ LED sleep auto-off installed; legacy touchscreen rule removed; GPU DPM delegated to HHD.${NC}"
 
 # 4. Controller & Platform Services
 echo -e "\n${BLUE}[4/6] Checking Controller & Platform Drivers...${NC}"

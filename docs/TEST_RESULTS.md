@@ -25,6 +25,7 @@ Tested on the author's physical AYANEO Slide on 2026-09-15, with follow-up inspe
 | Direct-read stress | Pass | 40 seconds of `O_DIRECT` sequential reads sustained 3.5–3.9 GiB/s with no NVMe/AER error |
 | Script static checks | Pass | `bash -n` and `git diff --check`; the Limine fixture produced one `default_ps_max_latency_us=15000` argument, and the rollback fixture removed tracked options while preserving an unrelated later option |
 | Service conflict isolation | Pass after fix | Both system and user SteamOS Manager units are masked while HHD is active; no failed user units remain |
+| Stock CachyOS touchscreen configuration | No change required | Plasma Wayland reports the internal panel as native `1080x1920` with a KWin output transform; the touchscreen has no `LIBINPUT_CALIBRATION_MATRIX`, and no custom touchscreen udev rule is installed |
 | HHD boost state | Pass after fix | At 8 W, boost on produced 10 W Fast/Slow and 8 W Skin/STAPM; boost off made all four 8 W. The current 12 W boost-off profile reports all four at 12 W |
 | Percentage charge limit | **Unsupported** | HHD found no `Battery Limit` path, and no kernel start/end threshold files exist |
 | Binary charge bypass backend | Pass at 100% | At `capacity=100` and `status=Full`, HHD reported `always` and Linux reported `auto [inhibit-charge]`; this inhibits charging at the present level and does not accept a percentage |
