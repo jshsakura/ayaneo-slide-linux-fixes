@@ -46,6 +46,15 @@ if [ -f "$STATE_DIR/scx_loader.was_enabled" ]; then
     echo "✓ scx_loader restored to its pre-install enabled state."
 fi
 
+# Remove the packaged-overlay preference installed for the HHD system unit.
+HHD_OVERLAY_DROPIN="/etc/systemd/system/hhd_local@.service.d/20-system-hhd-ui.conf"
+if [ -f "$HHD_OVERLAY_DROPIN" ]; then
+    rm -f "$HHD_OVERLAY_DROPIN"
+    rmdir "$(dirname "$HHD_OVERLAY_DROPIN")" 2>/dev/null || true
+    systemctl daemon-reload
+    echo "✓ HHD packaged-overlay preference removed (takes effect at its next restart)."
+fi
+
 # Remove udev rules
 echo "Removing custom udev rules..."
 rm -f /etc/udev/rules.d/99-ayaneo-slide-led-suspend.rules

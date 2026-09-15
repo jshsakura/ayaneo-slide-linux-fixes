@@ -42,6 +42,7 @@
 | **3D / Proton 실행 안정성** | 통합 GPU와 NVMe가 시스템 메모리 대역폭을 공유하므로 3D 초기화 때 IOMMU 변환 부하가 커질 수 있음. 이 기체의 과거 강제 재부팅 원인을 특정 오류 하나로 단정할 로그는 없음. | **`iommu=pt`**<br>통합 장치의 IOMMU 변환 오버헤드를 줄이는 보수적 설정. |
 | **PCIe 링크 전력 상태 전환** | `pcie_aspm=off`가 적용된 현재 읽기 시험에서는 AER·NVMe 오류가 없었음. ASPM을 켠 대조 시험은 아직 없어 기존의 전압 강하 설명은 입증되지 않음. | **시험 목적으로 `pcie_aspm=off` 유지**<br>현재 안정성 기준에서 링크 전력 전환을 제외함. A/B 시험이 필요하며 ASPM 비활성화는 대기 전력을 높일 수 있음. |
 | **디램리스 NVMe의 HMB 사용** | NM7A1은 자체 DRAM 대신 시스템 램을 HMB로 사용함. 이 장치는 희망값과 최소값을 모두 8192페이지로 보고하며 커널은 요청량 전부를 할당함. | **32MiB HMB 유지**<br>실측에서 HMB는 32MiB로 정상 활성화됨. RAM을 더 할당하는 설정은 컨트롤러가 요청하거나 지원하지 않으며, HMB를 끄면 주소 변환 효율만 악화됨. |
+| **RC 버튼으로 HHD QAM이 열리지 않음** | HHD는 시스템 경로보다 `~/.local/bin`을 먼저 검색함. 로컬의 구버전 `hhd-ui` 3.4.0이 시스템 패키지 3.4.2를 가렸고 gamescope 세션 종료 뒤 오버레이 프로세스가 죽었음. | **시스템 UI가 있으면 `HHD_OVERLAY=/usr/bin/hhd-ui`로 고정**<br>수정 뒤 RC 입력이 패키지 버전 3.4.2를 실행하고 QAM을 여는 것을 실기에서 확인함. |
 
 ---
 
@@ -100,7 +101,7 @@ sudo systemctl reboot
 </details>
 
 ### `install.sh` 스크립트 동작 과정
-1. **HHD 단독 관리**: TDP·컨트롤러 관리자를 하나만 유지하고 시스템·사용자 SteamOS Manager를 모두 마스크합니다. 선택된 지속 TDP는 보존하고 QAM boost만 끄며, 기존 충전 바이패스 선택도 보존합니다.
+1. **HHD 단독 관리**: TDP·컨트롤러 관리자를 하나만 유지하고 시스템·사용자 SteamOS Manager를 모두 마스크합니다. 구버전 로컬 UI가 RC/QAM을 가로채지 않도록 시스템 HHD UI를 우선하며, 선택된 지속 TDP는 보존하고 QAM boost만 끄고 기존 충전 바이패스 선택도 보존합니다.
 2. **안전 백업**: `/etc/default/limine`을 `/etc/default/limine.orig`로 자동 백업합니다.
 3. **커널 파라미터 주입**: `acpi=strict`, `processor.max_cstate=1`, `idle=nomwait`, `nvme_core.default_ps_max_latency_us=15000`, `tsc=reliable`, `amdgpu.sg_display=0`, `amdgpu.dcdebugmask=0x10`, `iommu=pt`, `pcie_aspm=off`를 부트로더에 안전하게 추가하고 무효 파라미터(`amdgpu.gfxoff=0`)를 정리합니다.
 4. **스케줄러 안정화**: 실험적인 BPF CPU 스케줄러(`scx_loader`)를 비활성화하고 원상 복구를 위해 기존 활성 상태를 기록합니다.
@@ -112,7 +113,7 @@ sudo systemctl reboot
 
 ## ↩️ 원상 복구 (제거 방법)
 
-레포가 설치한 Limine 옵션, udev 규칙과 구버전 NVMe 제한을 제거하려면 아래 명령어를 실행합니다. HHD가 실행 중이면 컨트롤러와 전력 관리가 끊기지 않도록 HHD 및 충돌 서비스 마스크는 유지합니다.
+레포가 설치한 Limine 옵션, udev 규칙, HHD 시스템 UI 우선 설정과 구버전 NVMe 제한을 제거하려면 아래 명령어를 실행합니다. HHD가 실행 중이면 컨트롤러와 전력 관리가 끊기지 않도록 HHD 및 충돌 서비스 마스크는 유지합니다.
 
 ```bash
 cd ayaneo-slide-linux-fixes
@@ -217,6 +218,10 @@ HHDCTL="$HOME/.local/share/hhd/venv/bin/hhdctl"
 "$HHDCTL" get tdp.qam.tdp tdp.qam.boost tdp.battery.charge_bypass
 cat /sys/class/power_supply/BAT0/charge_behaviour
 # 현재 기체: 12, false, disabled / 커널: [auto] inhibit-charge
+
+# 6. RC/QAM이 시스템 HHD UI를 사용하는지 확인
+systemctl show "hhd_local@$(whoami).service" -p Environment
+# /usr/bin/hhd-ui가 있으면 HHD_OVERLAY=/usr/bin/hhd-ui가 보여야 함
 ```
 
 ---

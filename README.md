@@ -42,6 +42,7 @@ This is not a collection of untested settings copied from the internet. I apply 
 | **3D / Proton launch stability** | The integrated GPU and NVMe share system-memory bandwidth, so IOMMU translation work can rise during 3D initialization. Available logs do not justify assigning the past resets to one specific hardware error. | **`iommu=pt`**<br>A conservative setting that reduces IOMMU translation overhead for integrated devices. |
 | **PCIe link-state transitions** | `pcie_aspm=off` is active and the current read test produced no AER or NVMe errors. No controlled run with ASPM enabled has been completed, so the old voltage-droop explanation is unproven. | **`pcie_aspm=off` retained for testing**<br>Keeps link power-state transitions out of the current stability baseline. An A/B test is still needed, and disabling ASPM can increase idle power. |
 | **DRAM-less NVMe HMB use** | The NM7A1 uses host RAM for its mapping cache. It reports both its preferred and minimum HMB size as 8192 pages, and Linux allocates the full request. | **Keep the 32 MiB HMB enabled**<br>Live inspection confirms that all 32 MiB are active. The controller does not request or advertise a larger buffer, and disabling HMB would make address mapping less efficient. |
+| **RC button stops opening HHD QAM** | HHD searches `~/.local/bin` before the system path. A stale local `hhd-ui` 3.4.0 shadowed packaged 3.4.2 and its overlay process died after the gamescope session closed. | **Pin `HHD_OVERLAY=/usr/bin/hhd-ui` when the packaged UI exists**<br>The tested RC press then launched packaged 3.4.2 and opened QAM. |
 
 ---
 
@@ -100,7 +101,7 @@ sudo systemctl reboot
 </details>
 
 ### What `install.sh` Does:
-1. **HHD Ownership**: Keeps one TDP/controller manager, masks both SteamOS Manager instances, preserves the selected sustained TDP, disables QAM boost, and preserves the existing charge-bypass choice.
+1. **HHD Ownership**: Keeps one TDP/controller manager, masks both SteamOS Manager instances, prefers the packaged HHD UI so stale local copies cannot intercept RC/QAM, preserves the selected sustained TDP, disables QAM boost, and preserves the existing charge-bypass choice.
 2. **Safety Backup**: Backs up `/etc/default/limine` to `/etc/default/limine.orig`.
 3. **Kernel Parameters**: Appends `acpi=strict`, `processor.max_cstate=1`, `idle=nomwait`, `nvme_core.default_ps_max_latency_us=15000`, `tsc=reliable`, `amdgpu.sg_display=0`, `amdgpu.dcdebugmask=0x10`, `iommu=pt`, and `pcie_aspm=off` to your bootloader. Cleans obsolete/invalid parameters (`amdgpu.gfxoff=0`).
 4. **Scheduler Stabilization**: Disables experimental BPF schedulers (`scx_loader`) in favor of upstream Linux EEVDF while recording whether the service was previously enabled for rollback.
@@ -112,7 +113,7 @@ sudo systemctl reboot
 
 ## ↩️ Rollback / Uninstallation
 
-To remove the Limine options, udev rule, and legacy NVMe limiter artifacts installed by this repository, run:
+To remove the Limine options, udev rule, HHD packaged-overlay preference, and legacy NVMe limiter artifacts installed by this repository, run:
 
 ```bash
 cd ayaneo-slide-linux-fixes
@@ -203,6 +204,10 @@ HHDCTL="$HOME/.local/share/hhd/venv/bin/hhdctl"
 "$HHDCTL" get tdp.qam.tdp tdp.qam.boost tdp.battery.charge_bypass
 cat /sys/class/power_supply/BAT0/charge_behaviour
 # Tested device: 12, false, disabled; kernel: [auto] inhibit-charge
+
+# 6. Verify that RC/QAM uses the packaged HHD UI
+systemctl show "hhd_local@$(whoami).service" -p Environment
+# Expected when /usr/bin/hhd-ui exists: HHD_OVERLAY=/usr/bin/hhd-ui
 ```
 
 ---

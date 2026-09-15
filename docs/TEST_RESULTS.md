@@ -25,6 +25,7 @@ Tested on the author's physical AYANEO Slide on 2026-09-15, with follow-up inspe
 | Direct-read stress | Pass | 40 seconds of `O_DIRECT` sequential reads sustained 3.5–3.9 GiB/s with no NVMe/AER error |
 | Script static checks | Pass | `bash -n` and `git diff --check`; the Limine fixture produced one `default_ps_max_latency_us=15000` argument, and the rollback fixture removed tracked options while preserving an unrelated later option |
 | Service conflict isolation | Pass after fix | Both system and user SteamOS Manager units are masked while HHD is active; no failed user units remain |
+| RC/HHD overlay launch | Pass after fix | Pinning `HHD_OVERLAY=/usr/bin/hhd-ui` stopped local 3.4.0 from shadowing packaged 3.4.2; the next RC press produced `open_qam`, launched `/usr/lib/hhd-ui/app.asar`, and displayed QAM |
 | HHD boost state | Pass after fix | At 8 W, boost on produced 10 W Fast/Slow and 8 W Skin/STAPM; boost off made all four 8 W. The current 12 W boost-off profile reports all four at 12 W |
 | Percentage charge limit | **Unsupported** | HHD found no `Battery Limit` path, and no kernel start/end threshold files exist |
 | Binary charge bypass backend | Pass at 100% | At `capacity=100` and `status=Full`, HHD reported `always` and Linux reported `auto [inhibit-charge]`; this inhibits charging at the present level and does not accept a percentage |
@@ -56,7 +57,7 @@ There is no charge-limit option: HHD found no `Battery Limit` path, and no `char
 ## Other observed warnings
 
 - HHD reported no PWM-controllable fan. On this software stack it manages TDP and the controller, not the fan.
-- The HHD overlay AppImage dumped core once during its `--version` probe and later exited when the gamescope display connection closed. The core HHD daemon, TDP path, and emulated controller remained active. This is an upstream overlay issue, not an NVMe failure.
+- The stale local HHD UI 3.4.0 AppImage dumped core once during its `--version` probe and later exited when the gamescope display connection closed. The core HHD daemon, TDP path, and emulated controller remained active. The installer now prefers packaged 3.4.2 when available; this is unrelated to NVMe.
 - `/usr/lib/udev/rules.d/70-led-control.rules` attempts to `chown` LED attributes that `xpad0` does not provide, producing harmless udev worker failures after resume. The rule is distribution-owned and is not installed by this repository.
 - The system exposes only `BAT0` and no separate AC supply node, so HHD logged that it could not find an AC-status file. Do not assume automatic AC/battery TDP switching on this device.
 - `gamescope-wl` aborted once in `libseat` while the short gamescope session was being stopped, and the HHD overlay exited with that display connection. The desktop session and core HHD daemon stayed available; this was not a whole-device reset.

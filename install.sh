@@ -72,7 +72,40 @@ if ! pgrep -f "bin/hhd" >/dev/null 2>&1 && ! sudo -u "$CURRENT_USER" -- bash -lc
     echo -e "${YELLOW}[!] HHD not found - installing Handheld Daemon (official Slide support)...${NC}"
     sudo -u "$CURRENT_USER" -- bash -c 'curl -L https://raw.githubusercontent.com/hhd-dev/hhd/master/install.sh | bash' || true
 fi
-systemctl enable --now "hhd_local@${CURRENT_USER}" 2>/dev/null || true
+
+# HHD searches ~/.local/bin before the system PATH. A stale local hhd-ui can
+# therefore shadow a newer distribution package and leave the RC/QAM overlay
+# dead after a gamescope-to-desktop transition. Prefer the packaged UI when it
+# exists, while retaining HHD's normal discovery on installations without it.
+HHD_UNIT="hhd_local@${CURRENT_USER}"
+HHD_OVERLAY_DROPIN="/etc/systemd/system/hhd_local@.service.d/20-system-hhd-ui.conf"
+HHD_WAS_ACTIVE=false
+HHD_OVERLAY_CHANGED=false
+systemctl is-active --quiet "$HHD_UNIT" && HHD_WAS_ACTIVE=true
+if [ -x /usr/bin/hhd-ui ]; then
+    if [ ! -f "$HHD_OVERLAY_DROPIN" ] || \
+       [ "$(cat "$HHD_OVERLAY_DROPIN")" != $'[Service]\nEnvironment="HHD_OVERLAY=/usr/bin/hhd-ui"' ]; then
+        install -d -m 755 "$(dirname "$HHD_OVERLAY_DROPIN")"
+        cat << 'EOF' > "$HHD_OVERLAY_DROPIN"
+[Service]
+Environment="HHD_OVERLAY=/usr/bin/hhd-ui"
+EOF
+        HHD_OVERLAY_CHANGED=true
+    fi
+elif [ -f "$HHD_OVERLAY_DROPIN" ]; then
+    rm -f "$HHD_OVERLAY_DROPIN"
+    HHD_OVERLAY_CHANGED=true
+fi
+if $HHD_OVERLAY_CHANGED; then
+    systemctl daemon-reload
+fi
+systemctl enable --now "$HHD_UNIT" 2>/dev/null || true
+if $HHD_WAS_ACTIVE && $HHD_OVERLAY_CHANGED; then
+    systemctl restart "$HHD_UNIT" 2>/dev/null || true
+fi
+if [ -x /usr/bin/hhd-ui ]; then
+    echo -e "${GREEN}✓ HHD overlay pinned to the packaged /usr/bin/hhd-ui.${NC}"
+fi
 # The HHD overlay AppImage requires libfuse.so.2. Its daemon, controller and TDP
 # paths remain independent if the optional overlay later exits with gamescope.
 pacman -S --needed --noconfirm fuse2 2>/dev/null || true

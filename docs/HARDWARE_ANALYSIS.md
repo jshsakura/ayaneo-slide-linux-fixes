@@ -94,6 +94,8 @@ HHD has device support for the AYANEO Slide and owns the physical controller, gy
 
 The installer therefore masks `inputplumber` when HHD is active. If HHD cannot start, it keeps InputPlumber available instead of leaving the machine without a controller layer. It masks both the system and user `steamos-manager` units because the user unit remains D-Bus activatable even when the system unit is masked. Without HHD, it restores one SteamOS Manager instance rather than starting both.
 
+HHD also searches `~/.local/bin` before the system executable path. On the test device, an old local `hhd-ui` 3.4.0 AppImage shadowed packaged 3.4.2 and its overlay process died when the gamescope display closed during the desktop transition. Setting `HHD_OVERLAY=/usr/bin/hhd-ui` in the HHD system-service environment made the next RC `open_qam` action launch the packaged Electron application and show QAM. The installer applies this preference only when `/usr/bin/hhd-ui` exists; otherwise HHD keeps its default discovery behavior.
+
 ## Verification
 
 After reboot, the expected state is:
@@ -108,6 +110,7 @@ systemctl is-active ayaneo-nvme-guard.service
 cat /sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/app.slice/io.max
 "$HOME/.local/share/hhd/venv/bin/hhdctl" get tdp.qam.tdp tdp.qam.boost tdp.battery.charge_bypass
 cat /sys/class/power_supply/BAT0/charge_behaviour
+systemctl show "hhd_local@$(whoami).service" -p Environment
 ```
 
-The command line, module parameter, and device QoS should show `15000`; APST should be enabled with PS3 as the idle target; HMB should show `HSIZE: 8192`; the legacy guard should be inactive or absent; and `io.max` should be empty. The current device reports TDP 12, boost `false`, charge bypass `disabled`, and kernel charge behavior `auto`.
+The command line, module parameter, and device QoS should show `15000`; APST should be enabled with PS3 as the idle target; HMB should show `HSIZE: 8192`; the legacy guard should be inactive or absent; and `io.max` should be empty. The current device reports TDP 12, boost `false`, charge bypass `disabled`, kernel charge behavior `auto`, and `HHD_OVERLAY=/usr/bin/hhd-ui`.
