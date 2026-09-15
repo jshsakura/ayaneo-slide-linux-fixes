@@ -33,7 +33,7 @@
 | 문제 현상 | 관찰 및 판단 | 적용 설정 |
 | :--- | :--- | :--- |
 | **절전 모드 진입 후 복귀 실패** | 이 문제 때문에 처음에는 NVMe APST를 통째로 껐음. ACPI와 NM7A1 PS4 복귀 경로가 모두 후보이며 현재 로그만으로 하나를 단정하지 않음. 새 설정에서 15초 `s2idle` 1회는 정상 복귀함. | **`acpi=strict` + NVMe APST 15ms 한도**<br>커뮤니티에서 사용된 ACPI 완화책을 유지하고 NM7A1 PS4를 제외함. 장시간·반복 슬립 검증은 아직 남아 있음. |
-| **갑작스러운 재부팅 / 셧다운** | 실제 고장 세션은 정상 종료·OOM·NVMe 오류 없이 로그가 끊겼음. 다음 부팅의 `0x00080800`은 CF9 소프트웨어 리셋 기록이라 원인을 단독으로 증명하지 못함. 당시 HHD가 없고 UMA는 512MiB였음. | **HHD 단독 사용 + 8–12W 안정성 기준 + boost off + `processor.max_cstate=1` + `idle=nomwait`**<br>전력 관리자를 하나만 유지하고 깊은 CPU idle 전환을 피함. 설치기는 사용자가 선택한 지속 TDP는 보존하고 QAM boost만 끔. UMA는 이 기체에서 6GiB로 설정해 게임 VRAM 부족도 분리함. |
+| **갑작스러운 재부팅 / 셧다운** | 실제 고장 세션은 정상 종료·OOM·NVMe 오류 없이 로그가 끊겼음. 다음 부팅의 `0x00080800`은 CF9 소프트웨어 리셋 기록이라 원인을 단독으로 증명하지 못함. 당시 HHD가 없고 UMA는 512MiB였음. | **HHD 단독 사용 + 이 기체의 12W 기준 + boost off + `processor.max_cstate=1` + `idle=nomwait`**<br>전력 관리자를 하나만 유지하고 깊은 CPU idle 전환을 피함. 설치기는 사용자가 선택한 지속 TDP는 보존하고 QAM boost만 끔. UMA는 이 기체에서 6GiB로 설정해 게임 VRAM 부족도 분리함. |
 | **렉사 NM790 절전 복귀 실패와 높은 대기 온도** | 절전 복귀 실패를 피하려고 넣은 `default_ps_max_latency_us=0`이 APST를 통째로 꺼 컨트롤러를 계속 활성 상태로 둠. NM7A1의 PS3는 진입 5ms + 복귀 10ms, PS4는 진입 8ms + 복귀 45ms로 보고됨. | **`nvme_core.default_ps_max_latency_us=15000`**<br>원래 대응 목적대로 딥슬립 PS4는 계속 배제하면서 50mW PS3만 허용. I/O 속도 제한 없이 대기 부하를 낮춤. PCIe 링크 ASPM은 기체 안정성을 위해 계속 비활성화. |
 | **터치 입력이 엉뚱한 곳에 찍힘 (이중 회전)**<br>*(터치한 위치가 아닌 회전된 위치에 입력됨)* | 물리 패널이 1080x1920 세로(Portrait) 규격이라 KWin(Plasma Wayland)이 가로 출력 회전(output transform)을 터치 좌표에 자동 적용함. 여기에 udev `LIBINPUT_CALIBRATION_MATRIX` 90도 회전 매트릭스를 얹으면 좌표가 한 번 더 회전하여 반대편에 입력됨. | **캘리브레이션 매트릭스 미적용**<br>회전 보정은 컴포지터가 자체 처리하므로 이전 `99-ayaneo-slide-touchscreen.rules`는 제거됨. |
 | **절전 중 조이스틱 RGB LED 배터리 방전**<br>*(기기가 절전 상태인데도 조이스틱 테두리 링 LED가 계속 깜빡이며 배터리를 소모함)* | 순정 펌웨어 기본값이 절전 중 점멸(`[oem] keep off`)로 되어 있음. | **`udev/99-ayaneo-slide-led-suspend.rules`**<br>절전 모드 진입 시 LED 전원을 완전히 끄는 `ATTR{suspend_mode}="off"` 규칙 적용. |
@@ -101,12 +101,13 @@ sudo systemctl reboot
 </details>
 
 ### `install.sh` 스크립트 동작 과정
-1. **안전 백업**: `/etc/default/limine`을 `/etc/default/limine.orig`로 자동 백업합니다.
-2. **커널 파라미터 주입**: `acpi=strict`, `processor.max_cstate=1`, `idle=nomwait`, `nvme_core.default_ps_max_latency_us=15000`, `tsc=reliable`, `amdgpu.sg_display=0`, `amdgpu.dcdebugmask=0x10`, `iommu=pt`, `pcie_aspm=off`를 부트로더에 안전하게 추가하고 무효 파라미터(`amdgpu.gfxoff=0`)를 정리합니다.
-3. **스케줄러 안정화**: 실험적이고 불안정한 BPF CPU 스케줄러(`scx_loader`)를 영구 비활성화하고 정석 EEVDF 스케줄러로 복구합니다.
-4. **하드웨어 udev 룰 등록**: 조이스틱 LED 절전 자동 소등 룰을 시스템에 등록합니다. (터치스크린 가로 보정은 컴포지터가 자체 처리하므로 룰을 별도로 설치하지 않습니다.)
-5. **부트로더 갱신**: `limine-update`를 실행하여 새로운 커널 설정과 initramfs를 빌드합니다.
-6. **NVMe 전력 관리**: 실행 중인 컨트롤러의 PM QoS도 15ms로 즉시 갱신하고, 구버전의 `ayaneo-nvme-guard`와 `app.slice` 쓰기 제한을 제거합니다.
+1. **HHD 단독 관리**: TDP·컨트롤러 관리자를 하나만 유지하고 시스템·사용자 SteamOS Manager를 모두 마스크합니다. 선택된 지속 TDP는 보존하고 QAM boost만 끄며, 기존 충전 바이패스 선택도 보존합니다.
+2. **안전 백업**: `/etc/default/limine`을 `/etc/default/limine.orig`로 자동 백업합니다.
+3. **커널 파라미터 주입**: `acpi=strict`, `processor.max_cstate=1`, `idle=nomwait`, `nvme_core.default_ps_max_latency_us=15000`, `tsc=reliable`, `amdgpu.sg_display=0`, `amdgpu.dcdebugmask=0x10`, `iommu=pt`, `pcie_aspm=off`를 부트로더에 안전하게 추가하고 무효 파라미터(`amdgpu.gfxoff=0`)를 정리합니다.
+4. **스케줄러 안정화**: 실험적인 BPF CPU 스케줄러(`scx_loader`)를 비활성화하고 원상 복구를 위해 기존 활성 상태를 기록합니다.
+5. **하드웨어 udev 룰 등록**: 조이스틱 LED 절전 자동 소등 룰을 시스템에 등록합니다. (터치스크린 가로 보정은 컴포지터가 자체 처리하므로 룰을 별도로 설치하지 않습니다.)
+6. **부트로더 갱신**: `limine-update`를 실행하여 새로운 커널 설정과 initramfs를 빌드합니다.
+7. **NVMe 전력 관리**: 실행 중인 컨트롤러의 PM QoS도 15ms로 즉시 갱신하고, 구버전의 `ayaneo-nvme-guard`와 `app.slice` 쓰기 제한을 제거합니다.
 
 ---
 
@@ -157,7 +158,24 @@ curl -sSL https://raw.githubusercontent.com/jshsakura/steamdeck/main/install.sh 
 
 ## 🔋 추천 TDP 전력 프로필 (Decky Loader 활용)
 
-HHD에서 먼저 **8–12W, CPU boost off, GPU auto**로 안정성을 확인합니다. 이 기체의 현재 전원 절약 프로필은 8W이며 이전 시험은 12W에서 수행했습니다. Space Marine 2처럼 과거에 약 5분 만에 시스템이 꺼진 부하는 최소 20–30분 동안 반복 검증한 뒤에만 TDP를 올립니다. 충전기 연결 여부만으로 22–28W가 안전하다고 가정하지 않습니다.
+| 용도 | TDP | Boost | GPU |
+|---|---:|---|---|
+| 가벼운 게임 / 최대 배터리 | 8–10W | 끔 | Auto |
+| **슬라이드 안정성 시작점** | **12W** | **끔** | **Auto** |
+| 7840U 일반 전성비 목표 | 15W | 끔 | Auto |
+| CPU 의존 에뮬레이터 | 12–15W | 켜고/끄고 비교 | Auto |
+
+Boost를 켜도 전력이 끝없이 올라가지는 않습니다. 실측한 8W 프로필에서는 HHD의 단기 Fast/Slow 한도가 10W로 올라가고 지속 한도는 8W로 남았습니다. Boost를 끄면 Fast/Slow/Skin/STAPM이 모두 8W가 됐습니다. CPU와 Radeon 780M이 같은 패키지 전력을 공유하므로 GPU 제한 게임에서는 CPU boost가 GPU의 전력·열 여유를 가져갈 수 있습니다. CPU 의존 작업에서 실제 성능이 좋아질 때만 켭니다.
+
+현재 기체는 **12W, boost off**입니다. Space Marine 2처럼 과거에 약 5분 만에 시스템이 꺼진 부하를 12W에서 20–30분 통과한 뒤에만 15W로 올립니다. 실측 동작과 명령은 [TDP·Boost·충전 바이패스](docs/POWER_AND_CHARGING.md)에 정리했습니다.
+
+고부하 게임은 **30 FPS 제한**부터 시작하고 안정적으로 유지되는 게임만 40 FPS로 올립니다. 일정한 제한은 표시 목표를 계속 놓치는 프레임을 만들기 위해 APU가 전력을 낭비하는 것을 줄입니다.
+
+## 🔌 충전 바이패스와 배터리 잔량
+
+HHD가 제공하는 Charge Bypass 값은 `disabled`와 `always`뿐입니다. 현재 `always` 설정은 Linux에서 `auto [inhibit-charge]`로 확인됩니다. 펌웨어가 `charge_control_end_threshold`를 제공하지 않아 HHD나 Linux에서 자동 80% 상한을 지정할 수 없습니다.
+
+80% 근처를 유지하려면 전원을 뽑아 80%까지 사용한 다음 Charge Bypass를 `always`로 둔 채 다시 연결합니다. 현재 잔량에서 충전을 막는 방식이며, 연결된 상태에서 100% 배터리를 80%까지 능동 방전시키지는 않습니다. 설치기는 임의 잔량에서 바이패스를 켜지 않고 사용자가 고른 상태를 보존합니다.
 
 ---
 
@@ -188,6 +206,12 @@ cat /sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/app.slic
 # 4. 조이스틱 LED 절전 설정 확인
 cat /sys/class/leds/ayaneo:rgb:joystick_rings/suspend_mode
 # 출력: [off] oem keep
+
+# 5. HHD TDP, boost, 충전 바이패스 확인
+HHDCTL="$HOME/.local/share/hhd/venv/bin/hhdctl"
+"$HHDCTL" get tdp.qam.tdp tdp.qam.boost tdp.battery.charge_bypass
+cat /sys/class/power_supply/BAT0/charge_behaviour
+# 현재 기체: 12, false, always / 커널: auto [inhibit-charge]
 ```
 
 ---
@@ -196,6 +220,7 @@ cat /sys/class/leds/ayaneo:rgb:joystick_rings/suspend_mode
 
 * [docs/HARDWARE_ANALYSIS.md](docs/HARDWARE_ANALYSIS.md) — 실측 NVMe 전력 상태, HMB, 온도, 재부팅 로그와 컨트롤러 스택 분석
 * [docs/TEST_RESULTS.md](docs/TEST_RESULTS.md) — 재부팅, APST, HMB, 슬립 복귀, 직접 읽기 부하 시험 및 알려진 한계
+* [docs/POWER_AND_CHARGING.md](docs/POWER_AND_CHARGING.md) — TDP 프로필, boost 동작과 슬라이드의 2단계 충전 바이패스
 * [docs/BIOS_RECOMMENDATIONS.md](docs/BIOS_RECOMMENDATIONS.md) — 바이오스 최적화 단계별 가이드
 * [README.md](README.md) — Global English Documentation
 

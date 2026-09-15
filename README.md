@@ -33,7 +33,7 @@ This is not a collection of untested settings copied from the internet. I apply 
 | Issue / Symptom | Observation and assessment | Applied setting |
 | :--- | :--- | :--- |
 | **Failure to return from suspend** | This was why APST was originally disabled altogether. ACPI behavior and the NM7A1 PS4 resume path are both candidates; the available logs do not isolate one cause. One 15-second `s2idle` cycle passed with the new setting. | **`acpi=strict` + a 15 ms NVMe APST bound**<br>Keeps the community ACPI mitigation and excludes NM7A1 PS4. Repeated and long-duration suspend tests remain outstanding. |
-| **Sudden resets / shutdowns** | Affected sessions ended without a clean shutdown, OOM, or NVMe error. The following boot reported `0x00080800`, which records a CF9 software reset and does not identify the root cause by itself. HHD was absent and UMA was 512 MiB during those failures. | **HHD as the only manager + an 8–12 W stability baseline + boost off + `processor.max_cstate=1` + `idle=nomwait`**<br>Avoids competing power managers and deep CPU idle transitions. The installer preserves the selected sustained TDP and disables only QAM boost. UMA is 6 GiB on the tested device. |
+| **Sudden resets / shutdowns** | Affected sessions ended without a clean shutdown, OOM, or NVMe error. The following boot reported `0x00080800`, which records a CF9 software reset and does not identify the root cause by itself. HHD was absent and UMA was 512 MiB during those failures. | **HHD as the only manager + a 12 W device baseline + boost off + `processor.max_cstate=1` + `idle=nomwait`**<br>Avoids competing power managers and deep CPU idle transitions. The installer preserves the selected sustained TDP and disables only QAM boost. UMA is 6 GiB on the tested device. |
 | **Lexar NM790 suspend-resume failure and high idle temperature** | The original `default_ps_max_latency_us=0` workaround for resume failures disabled APST entirely and kept the controller active. The NM7A1 reports 5 ms entry + 10 ms exit for PS3, and 8 ms entry + 45 ms exit for PS4. | **`nvme_core.default_ps_max_latency_us=15000`**<br>Continues to exclude deep PS4 while allowing the 50 mW PS3 state. This lowers idle load without an I/O speed cap. PCIe link ASPM remains disabled for platform stability. |
 | **Touchscreen Registers in Wrong Places (Double Rotation)**<br>*(Touches land in rotated/mirrored positions instead of where you tapped)* | The native panel is portrait (`1080x1920`); KWin (Plasma Wayland) already applies the 90-degree output transform to touch coordinates. An additional udev `LIBINPUT_CALIBRATION_MATRIX` rotates them a second time, landing touches off-target. | **No calibration matrix**<br>Compositors handle the rotation natively, so the old `99-ayaneo-slide-touchscreen.rules` was removed. |
 | **Sleep Battery Drain via Joystick LEDs**<br>*(RGB joystick rings stay on or flash continuously while device is in sleep mode)* | OEM firmware defaults to active blinking during suspend (`[oem] keep off`). | **`udev/99-ayaneo-slide-led-suspend.rules`**<br>Sets `ATTR{suspend_mode}="off"`, automatically cutting power to ring LEDs during sleep. |
@@ -101,12 +101,13 @@ sudo systemctl reboot
 </details>
 
 ### What `install.sh` Does:
-1. **Safety Backup**: Backs up `/etc/default/limine` to `/etc/default/limine.orig`.
-2. **Kernel Parameters**: Appends `acpi=strict`, `processor.max_cstate=1`, `idle=nomwait`, `nvme_core.default_ps_max_latency_us=15000`, `tsc=reliable`, `amdgpu.sg_display=0`, `amdgpu.dcdebugmask=0x10`, `iommu=pt`, and `pcie_aspm=off` to your bootloader. Cleans obsolete/invalid parameters (`amdgpu.gfxoff=0`).
-3. **Scheduler Stabilization**: Permanently disables experimental BPF schedulers (`scx_loader`) in favor of upstream Linux EEVDF.
-4. **Hardware Udev Rules**: Installs the joystick LED suspend auto-off rule. (Touchscreen landscape rotation is handled natively by the compositor, so no calibration rule is installed.)
-5. **Bootloader Rebuild**: Automatically executes `limine-update` to regenerate boot configs and initramfs.
-6. **NVMe Power Management**: Updates the live controller PM QoS to 15 ms and removes the legacy `ayaneo-nvme-guard` and `app.slice` write limit.
+1. **HHD Ownership**: Keeps one TDP/controller manager, masks both SteamOS Manager instances, preserves the selected sustained TDP, disables QAM boost, and preserves the existing charge-bypass choice.
+2. **Safety Backup**: Backs up `/etc/default/limine` to `/etc/default/limine.orig`.
+3. **Kernel Parameters**: Appends `acpi=strict`, `processor.max_cstate=1`, `idle=nomwait`, `nvme_core.default_ps_max_latency_us=15000`, `tsc=reliable`, `amdgpu.sg_display=0`, `amdgpu.dcdebugmask=0x10`, `iommu=pt`, and `pcie_aspm=off` to your bootloader. Cleans obsolete/invalid parameters (`amdgpu.gfxoff=0`).
+4. **Scheduler Stabilization**: Disables experimental BPF schedulers (`scx_loader`) in favor of upstream Linux EEVDF while recording whether the service was previously enabled for rollback.
+5. **Hardware Udev Rules**: Installs the joystick LED suspend auto-off rule. (Touchscreen landscape rotation is handled natively by the compositor, so no calibration rule is installed.)
+6. **Bootloader Rebuild**: Automatically executes `limine-update` to regenerate boot configs and initramfs.
+7. **NVMe Power Management**: Updates the live controller PM QoS to 15 ms and removes the legacy `ayaneo-nvme-guard` and `app.slice` write limit.
 
 ---
 
@@ -143,7 +144,24 @@ For maximum stability, battery life, and gaming performance, configure the follo
 
 ## 🔋 Recommended Handheld TDP Profiles (Decky Loader)
 
-Start in HHD at **8–12 W with CPU boost off and GPU mode on auto**. The current power-saving profile on the test device is 8 W; earlier testing used 12 W. Raise TDP only after a 20–30 minute repeat of a workload that previously powered the machine off in about five minutes, such as Space Marine 2. AC power alone is not evidence that 22–28 W is stable on this unit.
+| Use | TDP | Boost | GPU |
+|---|---:|---|---|
+| Light games / maximum battery | 8–10 W | Off | Auto |
+| **Slide stability starting point** | **12 W** | **Off** | **Auto** |
+| General 7840U efficiency target | 15 W | Off | Auto |
+| CPU-heavy emulator | 12–15 W | Compare on/off | Auto |
+
+Boost is bounded rather than unlimited. On the observed 8 W profile, enabling it raised HHD's Fast/Slow limits to 10 W while the sustained limit stayed at 8 W; disabling it made all four power limits 8 W. CPU and the Radeon 780M share one package budget, so CPU boost can take power and thermal headroom from the GPU in GPU-limited games. Enable it only when a CPU-heavy workload measurably benefits.
+
+This device currently runs at **12 W with boost off**. Raise it to 15 W only after a 20–30 minute repeat of a workload that previously powered the machine off in about five minutes, such as Space Marine 2. See [TDP, boost, and charge bypass](docs/POWER_AND_CHARGING.md) for the measured behavior and commands.
+
+For demanding games, start with a **30 FPS cap** and use 40 FPS only when the game holds it consistently. A stable cap prevents the APU from spending extra power rendering frames that immediately miss the display target.
+
+## 🔌 Charge Bypass and Battery Level
+
+HHD exposes only `disabled` and `always` for Charge Bypass. The current `always` setting appears in Linux as `auto [inhibit-charge]`. There is no `charge_control_end_threshold` interface, so neither HHD nor Linux can set an automatic 80% ceiling on this firmware.
+
+To hold about 80%, unplug and discharge to 80%, then reconnect with Charge Bypass left on `always`. This inhibits charging at the current level; it does not actively drain a connected battery from 100% to 80%. The installer preserves this choice rather than enabling bypass automatically at an arbitrary battery level.
 
 ---
 
@@ -174,6 +192,12 @@ cat /sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/app.slic
 # 4. Verify LED suspend mode
 cat /sys/class/leds/ayaneo:rgb:joystick_rings/suspend_mode
 # Expected: [off] oem keep
+
+# 5. Verify HHD TDP, boost, and charge bypass
+HHDCTL="$HOME/.local/share/hhd/venv/bin/hhdctl"
+"$HHDCTL" get tdp.qam.tdp tdp.qam.boost tdp.battery.charge_bypass
+cat /sys/class/power_supply/BAT0/charge_behaviour
+# Tested device: 12, false, always; kernel: auto [inhibit-charge]
 ```
 
 ---
@@ -182,6 +206,7 @@ cat /sys/class/leds/ayaneo:rgb:joystick_rings/suspend_mode
 
 * [docs/HARDWARE_ANALYSIS.md](docs/HARDWARE_ANALYSIS.md) — Measured NVMe power states, HMB, temperatures, reset-log evidence, and controller stack analysis.
 * [docs/TEST_RESULTS.md](docs/TEST_RESULTS.md) — Reboot, APST, HMB, suspend/resume, direct-read stress results, and known limits.
+* [docs/POWER_AND_CHARGING.md](docs/POWER_AND_CHARGING.md) — TDP profiles, boost behavior, and the Slide's binary charge-bypass control.
 * [docs/BIOS_RECOMMENDATIONS.md](docs/BIOS_RECOMMENDATIONS.md) — Step-by-step BIOS tuning guide.
 * [README.ko.md](README.ko.md) — 한국어 가이드 및 상세 설명서.
 

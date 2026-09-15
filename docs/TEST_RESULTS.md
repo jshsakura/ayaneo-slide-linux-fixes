@@ -1,6 +1,6 @@
 # Test Results and Known Limits
 
-Tested on the author's physical AYANEO Slide on 2026-09-15. These results describe this device and software build; they are not universal guarantees for every SSD firmware or distribution.
+Tested on the author's physical AYANEO Slide on 2026-09-15, with follow-up inspection on 2026-09-16. These results describe this device and software build; they are not universal guarantees for every SSD firmware or distribution.
 
 ## Configuration
 
@@ -25,7 +25,8 @@ Tested on the author's physical AYANEO Slide on 2026-09-15. These results descri
 | Direct-read stress | Pass | 40 seconds of `O_DIRECT` sequential reads sustained 3.5–3.9 GiB/s with no NVMe/AER error |
 | Script static checks | Pass | `bash -n` and `git diff --check`; the Limine fixture produced one `default_ps_max_latency_us=15000` argument, and the rollback fixture removed tracked options while preserving an unrelated later option |
 | Service conflict isolation | Pass after fix | Both system and user SteamOS Manager units are masked while HHD is active; no failed user units remain |
-| HHD boost state | Pass after fix | Sustained TDP remained 8 W while QAM boost changed from true to false; fast/slow/skin/STAPM all reported 8 W |
+| HHD boost state | Pass after fix | At 8 W, boost on produced 10 W Fast/Slow and 8 W Skin/STAPM; boost off made all four 8 W. The current 12 W boost-off profile reports all four at 12 W |
+| Charge bypass capability | Pass, binary only | HHD reported `always` and Linux reported `auto [inhibit-charge]`; no start/end percentage-threshold files exist |
 | DCN `REG_WAIT` warning | **Not resolved** | `amdgpu.sg_display=0` and `amdgpu.dcdebugmask=0x10` were active, but one `dcn31_program_compbuf_size` timeout still appeared during boot; no GPU reset followed |
 
 ## Thermal limit observed under load
@@ -44,6 +45,12 @@ The kernel also reported that the BIOS was not configured for optimal suspend-to
 
 The display options have not passed dock A/B testing. The current boot log disproves the earlier claim that `amdgpu.sg_display=0` eliminates the DCN timeout.
 
+## Power and charging observations
+
+The current profile is 12 W with QAM TDP boost disabled, GPU frequency management on auto, and Fast/Slow/Skin/STAPM limits all at 12 W. The earlier 8 W boost-on profile raised only the bounded Fast/Slow limits to 10 W, so boost did not remove the power ceiling.
+
+HHD exposes Charge Bypass as `disabled` or `always`; it does not offer a percentage. With `always` selected at 100%, `/sys/class/power_supply/BAT0/charge_behaviour` showed `auto [inhibit-charge]`. No `charge_control_start_threshold` or `charge_control_end_threshold` exists. Holding about 80% therefore requires discharging to that level before reconnecting with bypass enabled. Persistence across a later reboot and the actual battery current at 80% still need measurement.
+
 ## Other observed warnings
 
 - HHD reported no PWM-controllable fan. On this software stack it manages TDP and the controller, not the fan.
@@ -59,10 +66,11 @@ The display options have not passed dock A/B testing. The current boot log dispr
 ## Tests still required before stronger claims
 
 - Multiple long suspend/resume cycles, including battery drain measurement
-- A 20–30 minute Space Marine 2 run at a fixed 8–12 W, because the old failure occurred after about five minutes
+- A 20–30 minute Space Marine 2 run at fixed 12 W, followed by a separate 15 W run if 12 W passes, because the old failure occurred after about five minutes
 - Dock connect/disconnect testing with the internal panel active
 - An ASPM-on/off comparison; the current run only establishes behavior with `pcie_aspm=off`
 - An isolated comparison without `processor.max_cstate=1`, `idle=nomwait`, and `tsc=reliable`; these settings can trade idle power or clocksource fallback for fewer state transitions
 - A full Steam download followed by SLC-folding cooldown measurement with the new APST setting
+- Charge-bypass persistence and battery-current observation after reconnecting near 80%
 
 Until those pass, the README describes the relevant settings as mitigations and measured behavior rather than complete fixes.

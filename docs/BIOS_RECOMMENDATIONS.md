@@ -23,7 +23,14 @@ This guide details the recommended BIOS settings for the **AYANEO Slide** (and *
 
 ## ⚡ Battery & TDP Best Practices (via Decky Loader)
 
-* Begin at **8–12 W**, disable CPU boost, and leave GPU frequency on `auto`.
-* Repeat a previously failing game for at least 20–30 minutes before raising TDP.
+* Use **8–10 W** for light games and maximum battery life.
+* Use **12 W, TDP boost off, GPU auto** as the current Slide stability baseline.
+* Treat **15 W** as the general 7840U efficiency/performance target only after the same demanding game passes for 20–30 minutes at 12 W.
+* TDP boost raises bounded Fast/Slow limits; it is not unlimited. Leave it off for GPU-limited games and test it only for CPU-heavy games or emulators.
+* Start demanding games at a 30 FPS cap; raise the cap to 40 FPS only when frame delivery remains stable.
 * Treat AC and battery as separate tests. A charger does not by itself validate 22–28 W operation.
 * The installer intentionally leaves the user's HHD TDP unchanged.
+
+## 🔌 Charge Bypass
+
+HHD exposes only `disabled` and `always` on the tested Slide. There is no firmware-backed 80% threshold. With `always` selected, Linux reports `inhibit-charge`; discharge to the desired level before reconnecting external power. See [POWER_AND_CHARGING.md](POWER_AND_CHARGING.md) for commands and limitations.

@@ -62,8 +62,8 @@ fi
 # HHD (Handheld Daemon) is the required TDP/controller manager. The current
 # Slide stack does not expose a PWM-controllable fan to HHD. The historical
 # hard-power-off sessions happened without HHD managing the power budget. HHD
-# conflicts
-# with steamos-manager (both claim the same controls), so the policy is:
+# conflicts with steamos-manager because both claim the same controls, so the
+# policy is:
 # HHD present -> mask steamos-manager (plain disable is bypassed by Steam's
 # D-Bus activation); HHD absent -> keep steamos-manager as the only power
 # management and warn, because removing it with no replacement caused the
@@ -101,6 +101,16 @@ if systemctl is-active --quiet "hhd_local@${CURRENT_USER}"; then
             echo -e "${GREEN}✓ HHD QAM boost disabled; selected sustained TDP preserved.${NC}"
         else
             echo -e "${YELLOW}[!] HHD is active but QAM boost could not be verified. Check with: hhdctl get tdp.qam.boost${NC}"
+        fi
+
+        # The Slide exposes binary charge inhibition but no percentage
+        # threshold. Preserve the user's choice: enabling it automatically at
+        # a low state of charge could prevent the next recharge.
+        CHARGE_BYPASS=$("$HHDCTL" get tdp.battery.charge_bypass --values --sep='' 2>/dev/null || true)
+        if [ "$CHARGE_BYPASS" = always ] || [ "$CHARGE_BYPASS" = disabled ]; then
+            echo -e "${GREEN}✓ HHD charge bypass preserved: ${CHARGE_BYPASS} (no 80% threshold is exposed).${NC}"
+        else
+            echo -e "${YELLOW}[!] HHD charge-bypass state is unavailable; no charging setting was changed.${NC}"
         fi
     else
         echo -e "${YELLOW}[!] HHD is active but hhdctl was not found; QAM boost was not changed.${NC}"
@@ -297,6 +307,7 @@ echo -e "${BOLD}${GREEN}  Installation Complete!  ${NC}"
 echo -e "${CYAN}==============================================================================${NC}"
 echo -e "Applied settings:"
 echo -e "  1. ${BOLD}Power Management${NC}: HHD TDP/controller, QAM boost off; both steamos-manager units conflict-handled"
+echo -e "     ${BOLD}Charging${NC}: existing HHD charge-bypass choice preserved; firmware exposes no percentage threshold"
 echo -e "  2. ${BOLD}Suspend Mitigation${NC}: acpi=strict & shallow-only NVMe APST (15000 us)"
 echo -e "  3. ${BOLD}CPU Idle Mitigation${NC}: processor.max_cstate=1 & idle=nomwait (A/B test pending)"
 echo -e "  4. ${BOLD}iGPU / PCIe Test Baseline${NC}: iommu=pt & pcie_aspm=off"

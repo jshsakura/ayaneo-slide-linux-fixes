@@ -8,7 +8,7 @@ This document records the hardware data and logs observed on the test device. It
 - 24 GiB LPDDR5X, UMA frame buffer set to 6 GiB
 - Lexar SSD NM7A1 2TB, firmware 9742, Maxio MAP1602 (`1d97`), DRAM-less
 - CachyOS Deckify, Linux `7.2.3-1-cachyos-deckify`
-- HHD active; observed profiles ranged from 8 W to 12 W with boost disabled
+- HHD active at 12 W with TDP boost disabled and charge bypass set to `always`
 
 ## NVMe controller power and temperature
 
@@ -62,12 +62,19 @@ The next boot reported `[0x00080800]: software wrote 0x6 to reset control regist
 The installed mitigations remain conservative:
 
 - HHD is the sole TDP/controller manager; both system and user `steamos-manager` units are masked while HHD is active. The current driver stack exposes no PWM-controllable fan to HHD.
-- The stability baseline is 8–12 W. The installer preserves the user's sustained HHD TDP but disables QAM boost; on the current 8 W profile, HHD then reports fast/slow/skin/STAPM all at 8 W.
+- The current stability baseline is 12 W with boost disabled and GPU frequency on auto. The installer preserves the user's sustained HHD TDP but disables QAM boost.
+- HHD boost is bounded. At the observed 8 W setting, enabling it raised Fast/Slow to 10 W while Skin/STAPM remained 8 W; disabling it made all four limits 8 W. At the current 12 W setting with boost disabled, all four limits are 12 W.
 - `processor.max_cstate=1` and `idle=nomwait` avoid deep CPU idle transitions. They can increase APU and chassis idle power, so they remain candidates for an isolated A/B test rather than proven reset fixes.
 - `scx_loader` is disabled in favor of the kernel's standard scheduler.
 - `tsc=reliable` keeps TSC selected on this configuration. It can suppress watchdog-based fallback and has not been isolated as the cause of the historical warning.
 
 These settings reduce variables and power transients. They do not turn the reset record into proof of one hardware failure mode.
+
+## Battery charge control
+
+HHD reports `tdp.battery.charge_bypass=always`, and the battery power-supply interface reports `auto [inhibit-charge]`. Only `disabled` and `always` are available in HHD. The kernel exposes neither `charge_control_start_threshold` nor `charge_control_end_threshold`, so there is no programmable 80% ceiling.
+
+The available control inhibits charging at the present state of charge. It does not command a connected battery to discharge from 100% to 80%. Linux can confirm the inhibit state but does not expose internal rail telemetry that would independently prove hardware-level direct bypass. The installer therefore preserves this user setting instead of changing it automatically. See [POWER_AND_CHARGING.md](POWER_AND_CHARGING.md).
 
 ## GPU, display, and PCIe mitigations
 
@@ -97,6 +104,8 @@ sudo nvme get-feature /dev/nvme0 -f 0x0c -H
 sudo nvme get-feature /dev/nvme0 -f 0x0d -H
 systemctl is-active ayaneo-nvme-guard.service
 cat /sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/app.slice/io.max
+"$HOME/.local/share/hhd/venv/bin/hhdctl" get tdp.qam.tdp tdp.qam.boost tdp.battery.charge_bypass
+cat /sys/class/power_supply/BAT0/charge_behaviour
 ```
 
-The command line, module parameter, and device QoS should show `15000`; APST should be enabled with PS3 as the idle target; HMB should show `HSIZE: 8192`; the legacy guard should be inactive or absent; and `io.max` should be empty.
+The command line, module parameter, and device QoS should show `15000`; APST should be enabled with PS3 as the idle target; HMB should show `HSIZE: 8192`; the legacy guard should be inactive or absent; and `io.max` should be empty. The current device reports TDP 12, boost `false`, charge bypass `always`, and kernel charge behavior `inhibit-charge`.
