@@ -16,6 +16,7 @@ Tested on the author's physical AYANEO Slide on 2026-09-15. These results descri
 | Check | Result | Evidence |
 |---|---|---|
 | Persistent boot option | Pass | `/proc/cmdline`, module parameter, and NVMe device QoS all reported `15000` after reboot |
+| Post-reboot observation | Pass, 16 h 57 min | The same boot ID remained active through 2026-09-16 00:14 KST with no NVMe/AER error, GPU reset, OOM, MCE, or unexpected reboot |
 | APST selection | Pass | APSTE enabled; PS0–PS2 transition to PS3 after 100 ms; PS4 entries unused |
 | HMB allocation | Pass | Kernel allocated 32 MiB in 8 segments; feature `0x0d` reported `HSIZE: 8192` |
 | Legacy limiter removal | Pass | `ayaneo-nvme-guard.service` inactive/absent and user `app.slice/io.max` empty |
@@ -53,6 +54,7 @@ The display options have not passed dock A/B testing. The current boot log dispr
 - Three static units from `gamescope-session-cachyos` tried to launch missing optional binaries (`ibus-daemon`, `xbindkeys`, and `steam_notif_daemon`). They are packaging/session warnings and are outside this hardware-fix installer.
 - Steam also called `/usr/lib/jupiter-dock-updater/jupiter-dock-updater.sh`, which is absent on this installation. Dock firmware updates through that helper are therefore unavailable until the distribution package supplies it.
 - `/etc/vconsole.conf` requests `KEYMAP=ko`, which is not installed as a console keymap. Early boot logged two `loadkeys` failures before `systemd-vconsole-setup` completed successfully.
+- PowerDevil logged repeated DDC/I²C `EREMOTEIO` failures on `/dev/i2c-12` during display redetection at 00:14. They did not coincide with a GPU reset or system restart; dock/display A/B testing is still needed to assess their impact.
 
 ## Tests still required before stronger claims
 
