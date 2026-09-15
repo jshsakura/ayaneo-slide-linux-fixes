@@ -33,4 +33,4 @@ This guide details the recommended BIOS settings for the **AYANEO Slide** (and *
 
 ## 🔌 Charge Limit Is Unsupported; Bypass Only
 
-The tested Slide has no charge-limit option or firmware-backed 80% threshold. A separate Charge Bypass switch has only `disabled` and `always`; with `always` selected, Linux reports `inhibit-charge`. Discharge to the desired level before reconnecting external power. See [POWER_AND_CHARGING.md](POWER_AND_CHARGING.md) for commands and limitations.
+The tested Slide has no charge-limit option or firmware-backed 80% threshold. A separate Charge Bypass switch has only `disabled` and `always`; with `always` selected, Linux reports `inhibit-charge`. The installer uses those two states for a fixed 95–100% hysteresis window. See [POWER_AND_CHARGING.md](POWER_AND_CHARGING.md) for the policy and verification commands.

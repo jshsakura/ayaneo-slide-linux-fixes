@@ -76,7 +76,9 @@ HHD's probe found `/sys/class/power_supply/BAT0/charge_behaviour` for `Battery B
 
 The separate bypass backend reports `tdp.battery.charge_bypass=always`, and the battery power-supply interface reports `auto [inhibit-charge]`. Its only backend states are `disabled` and `always`; these are not percentage choices.
 
-The available control inhibits charging at the present state of charge. It does not command a connected battery to discharge from 100% to 80%. Linux can confirm the inhibit state but does not expose internal rail telemetry that would independently prove hardware-level direct bypass. The installer therefore preserves this user setting instead of changing it automatically. See [POWER_AND_CHARGING.md](POWER_AND_CHARGING.md).
+The available control inhibits charging at the present state of charge. It does not command a connected battery to discharge from 100% to 80%. Linux can confirm the inhibit state but does not expose internal rail telemetry that would independently prove hardware-level direct bypass.
+
+The installer uses a 30-second systemd timer with hysteresis: it selects `always` at a reported capacity of 100%, keeps the existing state from 96–99%, and selects `disabled` at 95% or below. The helper reads the selected kernel `charge_behaviour` state and exits without calling HHD when it already matches. See [POWER_AND_CHARGING.md](POWER_AND_CHARGING.md).
 
 ## GPU, display, and PCIe mitigations
 
@@ -108,6 +110,7 @@ systemctl is-active ayaneo-nvme-guard.service
 cat /sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/app.slice/io.max
 "$HOME/.local/share/hhd/venv/bin/hhdctl" get tdp.qam.tdp tdp.qam.boost tdp.battery.charge_bypass
 cat /sys/class/power_supply/BAT0/charge_behaviour
+systemctl status ayaneo-charge-at-full.timer --no-pager
 ```
 
 The command line, module parameter, and device QoS should show `15000`; APST should be enabled with PS3 as the idle target; HMB should show `HSIZE: 8192`; the legacy guard should be inactive or absent; and `io.max` should be empty. The current device reports TDP 12, boost `false`, charge bypass `always`, and kernel charge behavior `inhibit-charge`.
