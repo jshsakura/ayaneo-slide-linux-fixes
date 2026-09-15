@@ -48,7 +48,6 @@ fi
 
 # Remove udev rules
 echo "Removing custom udev rules..."
-rm -f /etc/udev/rules.d/99-ayaneo-slide-touchscreen.rules
 rm -f /etc/udev/rules.d/99-ayaneo-slide-led-suspend.rules
 udevadm control --reload-rules
 echo "✓ Udev rules removed."
