@@ -8,7 +8,7 @@ This document records the hardware data and logs observed on the test device. It
 - 24 GiB LPDDR5X, UMA frame buffer set to 6 GiB
 - Lexar SSD NM7A1 2TB, firmware 9742, Maxio MAP1602 (`1d97`), DRAM-less
 - CachyOS Deckify, Linux `7.2.3-1-cachyos-deckify`
-- HHD active at 12 W with TDP boost disabled and charge bypass set to `always`
+- HHD active at 12 W with TDP boost disabled and charge bypass set to `disabled`
 
 ## NVMe controller power and temperature
 
@@ -74,11 +74,9 @@ These settings reduce variables and power transients. They do not turn the reset
 
 HHD's probe found `/sys/class/power_supply/BAT0/charge_behaviour` for `Battery Bypass` but printed no path for `Battery Limit`. The kernel exposes neither `charge_control_start_threshold` nor `charge_control_end_threshold`, so the device has no programmable 80% charge-limit option.
 
-The separate bypass backend reports `tdp.battery.charge_bypass=always`, and the battery power-supply interface reports `auto [inhibit-charge]`. Its only backend states are `disabled` and `always`; these are not percentage choices.
+The separate bypass backend has only `disabled` and `always`; these are not percentage choices. HHD maps them to the kernel driver's `auto` and `inhibit-charge` states.
 
-The available control inhibits charging at the present state of charge. It does not command a connected battery to discharge from 100% to 80%. Linux can confirm the inhibit state but does not expose internal rail telemetry that would independently prove hardware-level direct bypass.
-
-The installer uses a 30-second systemd timer with hysteresis: it selects `always` at a reported capacity of 100%, keeps the existing state from 96–99%, and selects `disabled` at 95% or below. The helper reads the selected kernel `charge_behaviour` state and exits without calling HHD when it already matches. See [POWER_AND_CHARGING.md](POWER_AND_CHARGING.md).
+The local `ayaneo_platform` source contains no capacity-based automatic switching. Its `auto` path closes bypass by writing `0x65` to EC register `0xd1`; `inhibit-charge` opens bypass by writing `0x01`. Ordinary charge termination is separate: at 100% with bypass disabled, seven samples over 35 seconds remained `Full` with `energy_now=energy_full` and about 0.161 W reported by `power_now`. A custom polling service is therefore unnecessary for full-charge safety, and the installer preserves the user's bypass setting. See [POWER_AND_CHARGING.md](POWER_AND_CHARGING.md).
 
 ## GPU, display, and PCIe mitigations
 
@@ -110,7 +108,6 @@ systemctl is-active ayaneo-nvme-guard.service
 cat /sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/app.slice/io.max
 "$HOME/.local/share/hhd/venv/bin/hhdctl" get tdp.qam.tdp tdp.qam.boost tdp.battery.charge_bypass
 cat /sys/class/power_supply/BAT0/charge_behaviour
-systemctl status ayaneo-charge-at-full.timer --no-pager
 ```
 
-The command line, module parameter, and device QoS should show `15000`; APST should be enabled with PS3 as the idle target; HMB should show `HSIZE: 8192`; the legacy guard should be inactive or absent; and `io.max` should be empty. The current device reports TDP 12, boost `false`, charge bypass `always`, and kernel charge behavior `inhibit-charge`.
+The command line, module parameter, and device QoS should show `15000`; APST should be enabled with PS3 as the idle target; HMB should show `HSIZE: 8192`; the legacy guard should be inactive or absent; and `io.max` should be empty. The current device reports TDP 12, boost `false`, charge bypass `disabled`, and kernel charge behavior `auto`.

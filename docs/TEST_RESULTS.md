@@ -23,12 +23,12 @@ Tested on the author's physical AYANEO Slide on 2026-09-15, with follow-up inspe
 | Idle temperature snapshot | Pass | Controller/Composite settled to 57.9°C and NAND Sensor 2 to 47.9°C; the first post-reboot samples were 64–65°C/52°C and old APST-off snapshots were 68–72°C |
 | Timed suspend/resume | Pass, 1 cycle | 15-second `s2idle` cycle returned with the same boot ID; APST remained enabled with PS3 and QoS 15000; no NVMe or AER error |
 | Direct-read stress | Pass | 40 seconds of `O_DIRECT` sequential reads sustained 3.5–3.9 GiB/s with no NVMe/AER error |
-| Script static checks | Pass | `bash -n`, `git diff --check`, and `tests/test-charge-at-full.sh`; the Limine fixture produced one `default_ps_max_latency_us=15000` argument, and the rollback fixture removed tracked options while preserving an unrelated later option |
+| Script static checks | Pass | `bash -n` and `git diff --check`; the Limine fixture produced one `default_ps_max_latency_us=15000` argument, and the rollback fixture removed tracked options while preserving an unrelated later option |
 | Service conflict isolation | Pass after fix | Both system and user SteamOS Manager units are masked while HHD is active; no failed user units remain |
 | HHD boost state | Pass after fix | At 8 W, boost on produced 10 W Fast/Slow and 8 W Skin/STAPM; boost off made all four 8 W. The current 12 W boost-off profile reports all four at 12 W |
 | Percentage charge limit | **Unsupported** | HHD found no `Battery Limit` path, and no kernel start/end threshold files exist |
 | Binary charge bypass backend | Pass at 100% | At `capacity=100` and `status=Full`, HHD reported `always` and Linux reported `auto [inhibit-charge]`; this inhibits charging at the present level and does not accept a percentage |
-| Automatic 100% policy | Live pass at 100%; fixture pass for hysteresis | Installed timer is enabled and active; its live oneshot completed successfully at capacity 100 with HHD `always` and kernel `inhibit-charge`. Fixture tests kept the current state from 96–99%, selected `disabled` at 95, and made no HHD call when the kernel state already matched |
+| Built-in full-charge termination | Pass | With HHD `disabled` and kernel `[auto]`, seven samples over 35 seconds stayed at `capacity=100`, `status=Full`, and `energy_now=energy_full`; `power_now` reported about 0.161 W, so no custom 100% polling service is installed |
 | DCN `REG_WAIT` warning | **Not resolved** | `amdgpu.sg_display=0` and `amdgpu.dcdebugmask=0x10` were active, but one `dcn31_program_compbuf_size` timeout still appeared during boot; no GPU reset followed |
 
 ## Thermal limit observed under load
@@ -51,9 +51,7 @@ The display options have not passed dock A/B testing. The current boot log dispr
 
 The current profile is 12 W with QAM TDP boost disabled, GPU frequency management on auto, and Fast/Slow/Skin/STAPM limits all at 12 W. The earlier 8 W boost-on profile raised only the bounded Fast/Slow limits to 10 W, so boost did not remove the power ceiling.
 
-There is no charge-limit option: HHD found no `Battery Limit` path, and no `charge_control_start_threshold` or `charge_control_end_threshold` exists. A separate binary Charge Bypass backend accepts `disabled` or `always`. With `always` selected at 100%, `/sys/class/power_supply/BAT0/charge_behaviour` showed `auto [inhibit-charge]`. Holding about 80% requires disabling the automatic-full timer, discharging to that level, and reconnecting with bypass enabled. Persistence across a later reboot and the actual battery current at 80% still need measurement.
-
-The new automatic-full policy requests `always` at a reported capacity of 100%, keeps the current state from 96–99%, and requests `disabled` at 95% or below. It polls sysfs every 30 seconds but skips HHD entirely when no transition is required. The pre-install bypass state is recorded for uninstall rollback.
+There is no charge-limit option: HHD found no `Battery Limit` path, and no `charge_control_start_threshold` or `charge_control_end_threshold` exists. A separate binary Charge Bypass backend accepts `disabled` or `always`. The kernel driver maps these to `auto` and `inhibit-charge` without any percentage logic. Normal `[auto]` mode already remained `Full` at 100% in the live observation, so no custom full-charge timer is installed. Holding about 80% still requires discharging to that level before reconnecting with bypass enabled. Persistence across a later reboot and the actual battery current at 80% need measurement.
 
 ## Other observed warnings
 
@@ -76,6 +74,5 @@ The new automatic-full policy requests `always` at a reported capacity of 100%, 
 - An isolated comparison without `processor.max_cstate=1`, `idle=nomwait`, and `tsc=reliable`; these settings can trade idle power or clocksource fallback for fewer state transitions
 - A full Steam download followed by SLC-folding cooldown measurement with the new APST setting
 - Charge-bypass persistence and battery-current observation after reconnecting near 80%
-- Live transition through the 95–100% automatic bypass window
 
 Until those pass, the README describes the relevant settings as mitigations and measured behavior rather than complete fixes.

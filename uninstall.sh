@@ -29,7 +29,6 @@ else
     CURRENT_USER="${CURRENT_USER:-$USER}"
 fi
 CURRENT_UID=$(id -u "$CURRENT_USER")
-USER_HOME=$(getent passwd "$CURRENT_USER" | cut -d: -f6)
 STATE_DIR=/var/lib/ayaneo-slide-linux-fixes
 ADDED_PARAMS_FILE="$STATE_DIR/limine-added-params"
 user_systemctl() {
@@ -46,28 +45,6 @@ if [ -f "$STATE_DIR/scx_loader.was_enabled" ]; then
     rm -f "$STATE_DIR/scx_loader.was_enabled"
     echo "✓ scx_loader restored to its pre-install enabled state."
 fi
-
-# Remove the automatic full-charge bypass policy. Leave HHD itself installed
-# and restore the bypass state recorded before this policy was installed.
-systemctl disable --now ayaneo-charge-at-full.timer 2>/dev/null || true
-rm -f /etc/systemd/system/ayaneo-charge-at-full.timer
-rm -f /etc/systemd/system/ayaneo-charge-at-full.service
-rm -f /usr/local/sbin/ayaneo-charge-at-full
-HHDCTL="$USER_HOME/.local/share/hhd/venv/bin/hhdctl"
-if [ -f "$STATE_DIR/charge-bypass.before-auto" ]; then
-    PREVIOUS_BYPASS=$(cat "$STATE_DIR/charge-bypass.before-auto")
-    if [ "$PREVIOUS_BYPASS" = always ] || [ "$PREVIOUS_BYPASS" = disabled ]; then
-        if [ -x "$HHDCTL" ] && [ -S /run/hhd/api ] && \
-           "$HHDCTL" set "tdp.battery.charge_bypass=$PREVIOUS_BYPASS" >/dev/null 2>&1; then
-            echo "✓ Previous charge-bypass state restored: $PREVIOUS_BYPASS."
-        else
-            echo "[!] HHD was unavailable; charge bypass was left at its current state."
-        fi
-    fi
-fi
-rm -f "$STATE_DIR/charge-bypass.before-auto"
-systemctl daemon-reload
-echo "✓ Automatic full-charge bypass removed."
 
 # Remove udev rules
 echo "Removing custom udev rules..."

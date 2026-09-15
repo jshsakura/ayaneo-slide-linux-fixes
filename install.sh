@@ -103,102 +103,19 @@ if systemctl is-active --quiet "hhd_local@${CURRENT_USER}"; then
             echo -e "${YELLOW}[!] HHD is active but QAM boost could not be verified. Check with: hhdctl get tdp.qam.boost${NC}"
         fi
 
-        # The Slide has no percentage charge-limit control, but its binary
-        # bypass can implement a useful full-charge policy: charge normally
-        # below 100%, then inhibit charging once the reported capacity is 100%.
+        # The Slide has no charge-limit control. It exposes only a separate
+        # binary charge-inhibit backend. Preserve that state: enabling it
+        # automatically at a low charge could prevent the next recharge.
         CHARGE_BYPASS=$("$HHDCTL" get tdp.battery.charge_bypass --values --sep='' 2>/dev/null || true)
         if [ "$CHARGE_BYPASS" = always ] || [ "$CHARGE_BYPASS" = disabled ]; then
-            if [ ! -f "$STATE_DIR/charge-bypass.before-auto" ]; then
-                printf '%s\n' "$CHARGE_BYPASS" > "$STATE_DIR/charge-bypass.before-auto"
-            fi
-            cat << 'EOF' > /usr/local/sbin/ayaneo-charge-at-full
-#!/usr/bin/env bash
-set -u
-
-CAPACITY_FILE=${CAPACITY_FILE:-/sys/class/power_supply/BAT0/capacity}
-BEHAVIOUR_FILE=${BEHAVIOUR_FILE:-/sys/class/power_supply/BAT0/charge_behaviour}
-START_CAPACITY=${START_CAPACITY:-95}
-STOP_CAPACITY=${STOP_CAPACITY:-100}
-[ -r "$CAPACITY_FILE" ] || exit 0
-[ -r "$BEHAVIOUR_FILE" ] || exit 0
-
-CAPACITY=$(cat "$CAPACITY_FILE")
-[[ "$CAPACITY" =~ ^[0-9]+$ ]] || exit 1
-[[ "$START_CAPACITY" =~ ^[0-9]+$ ]] || exit 1
-[[ "$STOP_CAPACITY" =~ ^[0-9]+$ ]] || exit 1
-[ "$START_CAPACITY" -lt "$STOP_CAPACITY" ] || exit 1
-
-if [ "$CAPACITY" -ge "$STOP_CAPACITY" ]; then
-    TARGET=always
-elif [ "$CAPACITY" -le "$START_CAPACITY" ]; then
-    TARGET=disabled
-else
-    exit 0
-fi
-
-BEHAVIOUR=$(cat "$BEHAVIOUR_FILE")
-if { [ "$TARGET" = always ] && [[ "$BEHAVIOUR" == *"[inhibit-charge]"* ]]; } || \
-   { [ "$TARGET" = disabled ] && [[ "$BEHAVIOUR" == *"[auto]"* ]]; }; then
-    exit 0
-fi
-
-[ -n "${HHDCTL:-}" ] && [ -x "$HHDCTL" ] || exit 1
-"$HHDCTL" set "tdp.battery.charge_bypass=$TARGET" >/dev/null
-BEHAVIOUR=$(cat "$BEHAVIOUR_FILE")
-if { [ "$TARGET" = always ] && [[ "$BEHAVIOUR" != *"[inhibit-charge]"* ]]; } || \
-   { [ "$TARGET" = disabled ] && [[ "$BEHAVIOUR" != *"[auto]"* ]]; }; then
-    logger -t ayaneo-charge-at-full "Failed to set bypass=$TARGET at capacity=$CAPACITY"
-    exit 1
-fi
-logger -t ayaneo-charge-at-full "Set bypass=$TARGET at capacity=$CAPACITY"
-EOF
-            chmod 755 /usr/local/sbin/ayaneo-charge-at-full
-
-            cat << EOF > /etc/systemd/system/ayaneo-charge-at-full.service
-[Unit]
-Description=AYANEO automatic bypass at full charge
-After=hhd_local@${CURRENT_USER}.service
-ConditionPathExists=/sys/class/power_supply/BAT0/capacity
-ConditionPathExists=/sys/class/power_supply/BAT0/charge_behaviour
-
-[Service]
-Type=oneshot
-TimeoutStartSec=15s
-Environment="HHDCTL=$HHDCTL"
-ExecStart=/usr/local/sbin/ayaneo-charge-at-full
-EOF
-
-            cat << 'EOF' > /etc/systemd/system/ayaneo-charge-at-full.timer
-[Unit]
-Description=Check AYANEO full-charge bypass state
-
-[Timer]
-OnBootSec=30s
-OnUnitActiveSec=30s
-AccuracySec=5s
-Unit=ayaneo-charge-at-full.service
-
-[Install]
-WantedBy=timers.target
-EOF
-            systemctl daemon-reload
-            if systemctl enable --now ayaneo-charge-at-full.timer && \
-               systemctl start ayaneo-charge-at-full.service; then
-                echo -e "${GREEN}✓ Automatic full-charge bypass active: bypass at 100%, recharge at 95%.${NC}"
-            else
-                systemctl disable --now ayaneo-charge-at-full.timer 2>/dev/null || true
-                echo -e "${YELLOW}[!] Automatic full-charge bypass failed its first run and was disabled.${NC}"
-            fi
+            echo -e "${GREEN}✓ No percentage charge limit is available; binary bypass state preserved: ${CHARGE_BYPASS}.${NC}"
         else
-            systemctl disable --now ayaneo-charge-at-full.timer 2>/dev/null || true
-            echo -e "${YELLOW}[!] HHD charge-bypass backend is unavailable; automatic full-charge bypass was not installed.${NC}"
+            echo -e "${YELLOW}[!] HHD charge-bypass state is unavailable; no charging setting was changed.${NC}"
         fi
     else
-        systemctl disable --now ayaneo-charge-at-full.timer 2>/dev/null || true
         echo -e "${YELLOW}[!] HHD is active but hhdctl was not found; QAM boost was not changed.${NC}"
     fi
 else
-    systemctl disable --now ayaneo-charge-at-full.timer 2>/dev/null || true
     # CachyOS presets the user unit. Prefer it so only one instance owns the
     # D-Bus name; use the system unit only when no user manager is available.
     systemctl disable --now steamos-manager.service 2>/dev/null || true
@@ -390,7 +307,7 @@ echo -e "${BOLD}${GREEN}  Installation Complete!  ${NC}"
 echo -e "${CYAN}==============================================================================${NC}"
 echo -e "Applied settings:"
 echo -e "  1. ${BOLD}Power Management${NC}: HHD TDP/controller, QAM boost off; both steamos-manager units conflict-handled"
-echo -e "     ${BOLD}Charging${NC}: automatic bypass at 100%; recharge at 95%"
+echo -e "     ${BOLD}Charging${NC}: percentage limit unsupported; existing binary bypass state preserved"
 echo -e "  2. ${BOLD}Suspend Mitigation${NC}: acpi=strict & shallow-only NVMe APST (15000 us)"
 echo -e "  3. ${BOLD}CPU Idle Mitigation${NC}: processor.max_cstate=1 & idle=nomwait (A/B test pending)"
 echo -e "  4. ${BOLD}iGPU / PCIe Test Baseline${NC}: iommu=pt & pcie_aspm=off"

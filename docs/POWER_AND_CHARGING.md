@@ -45,44 +45,25 @@ A separate, binary charge-inhibit backend exists. Its HHD states are:
 tdp.battery.charge_bypass: disabled | always
 ```
 
-The live setting is `always`. Linux confirms that HHD maps this to:
+HHD maps its two settings to the kernel interface as follows:
 
 ```text
-/sys/class/power_supply/BAT0/charge_behaviour
-auto [inhibit-charge]
+disabled -> [auto] inhibit-charge
+always   -> auto [inhibit-charge]
 ```
 
-The brackets mark `inhibit-charge` as active. This is not a charge-limit option: it stops charging at the present battery level and has no percentage target. The other kernel label, `auto`, means normal charge behavior; it does not provide an HHD capacity-based policy. The OS can verify that charging is inhibited; it cannot independently measure the internal power rail to prove a hardware-level direct bypass.
+The brackets mark the active value. The local `ayaneo_platform` source confirms that `auto` writes `0x65` to EC register `0xd1` to close direct bypass, while `inhibit-charge` writes `0x01` to open it. The driver reacts only to a requested state change and contains no capacity-reading or percentage-trigger logic.
 
-At 100%, the binary bypass is still useful. The tested device currently reports `capacity=100`, `status=Full`, HHD `always`, and kernel `inhibit-charge`. Charging remains inhibited if capacity later reads 99%; select `disabled` when normal charging is wanted again. This can prevent repeated top-up cycles, but it does not reduce the cell voltage or provide the storage benefit of an actual 80% limit.
+Normal `[auto]` mode still performs ordinary full-charge termination through the EC and battery-management system. On the tested device, HHD `disabled` and kernel `[auto]` remained at `capacity=100`, `status=Full`, and `energy_now=energy_full` for seven samples over 35 seconds; `power_now` stayed at approximately 0.161 W. This verifies that a polling service is unnecessary merely to stop charging at 100%. It does not prove whether the internal power rail in normal full-charge mode is identical to forced direct bypass.
 
-## Automatic bypass at 100%
+Forced bypass remains available manually. With `always`, charging stays inhibited even after the capacity falls below 100%; select `disabled` to resume normal charging. Forced bypass does not lower the battery from its current state of charge.
 
-The installer adds `ayaneo-charge-at-full.timer`. Every 30 seconds its oneshot helper reads `BAT0/capacity` and `BAT0/charge_behaviour`. It invokes HHD only when the selected kernel state needs to change:
+To hold the battery near 80%:
 
-| Reported capacity | Policy action | Result |
-|---:|---|---|
-| 100% or above | Select `always` | Charging inhibited |
-| 96–99% | Keep the current state | Avoid 99↔100% top-up cycling |
-| 95% or below | Select `disabled` | Normal charging allowed |
-
-The matching-state path only reads sysfs and does not invoke HHD. This avoids continuous HHD calls and prevents the `always` mode from accidentally blocking recharge after the device has been used on battery. The uninstaller removes the timer and restores the bypass state recorded before installation.
-
-Verify the automation with:
-
-```bash
-systemctl is-enabled ayaneo-charge-at-full.timer
-systemctl status ayaneo-charge-at-full.timer --no-pager
-journalctl -u ayaneo-charge-at-full.service --no-pager
-```
-
-The timer owns the bypass state while it is active. To hold the battery near 80% manually instead:
-
-1. Stop the automatic policy with `sudo systemctl disable --now ayaneo-charge-at-full.timer`.
-2. Unplug external power and use the device until the reported capacity reaches about 80%.
-3. Select Charge Bypass `always`, then reconnect power. Bypass remains active and inhibits charging at that level.
-
-Re-enable the automatic 100% policy with `sudo systemctl enable --now ayaneo-charge-at-full.timer`.
+1. Leave Charge Bypass on `always` and unplug external power.
+2. Use the battery until it reaches about 80%.
+3. Reconnect external power while Charge Bypass remains on `always`.
+4. Recheck the capacity and charge behavior after reconnecting or rebooting.
 
 The backend can be inspected or changed with commands even when no percentage-limit control exists:
 
@@ -100,7 +81,7 @@ sudo "$HHDCTL" set tdp.battery.charge_bypass=always
 sudo "$HHDCTL" set tdp.battery.charge_bypass=disabled
 ```
 
-This automatic policy implements a fixed 95–100% window around the reported battery capacity. It is not a firmware-backed programmable 80% threshold, and it does not need the missing separate AC-supply status node.
+Do not install a polling service merely to reproduce the full-charge cutoff already provided by the EC/BMS. This system exposes only `BAT0`, has no separate AC-supply status node, and cannot command the battery to discharge to a target while external power remains connected.
 
 References:
 

@@ -101,7 +101,7 @@ sudo systemctl reboot
 </details>
 
 ### `install.sh` 스크립트 동작 과정
-1. **HHD 단독 관리**: TDP·컨트롤러 관리자를 하나만 유지하고 시스템·사용자 SteamOS Manager를 모두 마스크합니다. 선택된 지속 TDP는 보존하고 QAM boost를 끄며, 100% 자동 바이패스 정책을 설치합니다.
+1. **HHD 단독 관리**: TDP·컨트롤러 관리자를 하나만 유지하고 시스템·사용자 SteamOS Manager를 모두 마스크합니다. 선택된 지속 TDP는 보존하고 QAM boost만 끄며, 기존 충전 바이패스 선택도 보존합니다.
 2. **안전 백업**: `/etc/default/limine`을 `/etc/default/limine.orig`로 자동 백업합니다.
 3. **커널 파라미터 주입**: `acpi=strict`, `processor.max_cstate=1`, `idle=nomwait`, `nvme_core.default_ps_max_latency_us=15000`, `tsc=reliable`, `amdgpu.sg_display=0`, `amdgpu.dcdebugmask=0x10`, `iommu=pt`, `pcie_aspm=off`를 부트로더에 안전하게 추가하고 무효 파라미터(`amdgpu.gfxoff=0`)를 정리합니다.
 4. **스케줄러 안정화**: 실험적인 BPF CPU 스케줄러(`scx_loader`)를 비활성화하고 원상 복구를 위해 기존 활성 상태를 기록합니다.
@@ -175,13 +175,13 @@ Boost를 켜도 전력이 끝없이 올라가지는 않습니다. 실측한 8W �
 
 이 기체에는 **충전 제한 옵션이 없습니다.** HHD 로그도 `Battery Limit` 경로를 찾지 못했고, 펌웨어가 `charge_control_end_threshold`를 제공하지 않으므로 80% 같은 상한값을 지정할 수 없습니다.
 
-이와 별개로 Charge Bypass만 `disabled`와 `always` 두 상태로 동작합니다. 현재 `always` 상태는 Linux에서 `auto [inhibit-charge]`로 확인됩니다. 이것은 현재 잔량에서 충전을 막는 스위치이지 퍼센트를 지정하는 충전 제한 기능이 아닙니다. 여기서 선택되지 않은 `auto`는 커널이 일반 충전 모드에 붙인 이름이며, HHD가 잔량에 따라 자동 전환한다는 뜻이 아닙니다.
+이와 별개로 Charge Bypass만 `disabled`와 `always` 두 상태로 동작하며, HHD는 이를 커널 드라이버의 `auto`와 `inhibit-charge`에 각각 연결합니다. 이것은 수동 직접 바이패스 스위치이지 퍼센트를 지정하는 충전 제한 기능이 아닙니다.
 
-**100%에서 바이패스하는 것은 가능합니다.** 현재 기체도 `capacity=100`, `status=Full`, HHD `always`, 커널 `inhibit-charge`로 이미 충전 억제 중입니다. 이후 99%로 떨어져도 `always`인 동안에는 자동 보충 충전을 하지 않으며, 다시 충전하려면 `disabled`로 바꿔야 합니다. 보충 충전은 막지만 배터리를 100% 고전압 상태에서 내려주지는 않습니다.
+**일반 충전 모드도 100%에서 원래 충전을 끝냅니다.** HHD `disabled`, 커널 `[auto]` 상태에서 이 기체는 35초 동안 `capacity=100`, `status=Full`, `energy_now=energy_full`을 유지했고 `power_now`는 약 0.161W로 보고됐습니다. 정상적인 만충 제어는 EC/BMS가 이미 담당하므로 100% 초과 충전을 막기 위한 별도 감시 서비스는 필요하지 않습니다.
 
-설치기는 히스테리시스를 두어 이를 자동화합니다. 30초마다 확인해 **100%에서 `always`**로 전환하고, **96–99%에서는 현재 상태를 유지**하며, **95% 이하에서 `disabled`**로 충전을 재개합니다. 따라서 99↔100% 보충 충전을 반복하지 않으며, 실제 상태를 바꿀 때만 HHD를 호출합니다.
+`ayaneo_platform` 드라이버는 잔량에 따라 직접 바이패스를 자동으로 켜지 않습니다. 소스상 `auto`는 EC 바이패스를 닫고, `inhibit-charge`는 바이패스를 엽니다. `always`는 현재 잔량에서 직접 바이패스를 의도적으로 유지할 때만 사용합니다.
 
-자동 정책이 바이패스 상태를 관리하므로 임의 잔량인 80%를 동시에 유지할 수는 없습니다. 80% 근처를 수동으로 유지하려면 먼저 `ayaneo-charge-at-full.timer`를 끄고, 전원을 뽑아 80%까지 사용한 다음 `always`를 선택하고 다시 연결합니다. 바이패스는 현재 잔량에서 충전을 막을 뿐, 연결된 상태에서 100% 배터리를 80%까지 능동 방전시키지는 않습니다.
+80% 근처를 유지하려면 전원을 뽑아 80%까지 사용한 다음 Charge Bypass를 `always`로 둔 채 다시 연결합니다. 현재 잔량에서 충전을 막는 방식이며, 연결된 상태에서 100% 배터리를 80%까지 능동 방전시키지는 않습니다. 설치기는 임의 잔량에서 바이패스를 켜지 않고 사용자가 고른 상태를 보존합니다.
 
 ---
 
@@ -217,11 +217,7 @@ cat /sys/class/leds/ayaneo:rgb:joystick_rings/suspend_mode
 HHDCTL="$HOME/.local/share/hhd/venv/bin/hhdctl"
 "$HHDCTL" get tdp.qam.tdp tdp.qam.boost tdp.battery.charge_bypass
 cat /sys/class/power_supply/BAT0/charge_behaviour
-# 현재 기체: 12, false, always / 커널: auto [inhibit-charge]
-
-systemctl is-enabled ayaneo-charge-at-full.timer
-systemctl status ayaneo-charge-at-full.timer --no-pager
-# 설치 후: enabled / active (waiting)
+# 현재 기체: 12, false, disabled / 커널: [auto] inhibit-charge
 ```
 
 ---

@@ -101,7 +101,7 @@ sudo systemctl reboot
 </details>
 
 ### What `install.sh` Does:
-1. **HHD Ownership**: Keeps one TDP/controller manager, masks both SteamOS Manager instances, preserves the selected sustained TDP, disables QAM boost, and installs automatic bypass at 100%.
+1. **HHD Ownership**: Keeps one TDP/controller manager, masks both SteamOS Manager instances, preserves the selected sustained TDP, disables QAM boost, and preserves the existing charge-bypass choice.
 2. **Safety Backup**: Backs up `/etc/default/limine` to `/etc/default/limine.orig`.
 3. **Kernel Parameters**: Appends `acpi=strict`, `processor.max_cstate=1`, `idle=nomwait`, `nvme_core.default_ps_max_latency_us=15000`, `tsc=reliable`, `amdgpu.sg_display=0`, `amdgpu.dcdebugmask=0x10`, `iommu=pt`, and `pcie_aspm=off` to your bootloader. Cleans obsolete/invalid parameters (`amdgpu.gfxoff=0`).
 4. **Scheduler Stabilization**: Disables experimental BPF schedulers (`scx_loader`) in favor of upstream Linux EEVDF while recording whether the service was previously enabled for rollback.
@@ -161,13 +161,13 @@ For demanding games, start with a **30 FPS cap** and use 40 FPS only when the ga
 
 This device has **no charge-limit option**. HHD found no `Battery Limit` path, and the firmware exposes no `charge_control_end_threshold`, so an 80% ceiling cannot be configured.
 
-Charge Bypass is a separate binary control with `disabled` and `always` states. The current `always` state appears in Linux as `auto [inhibit-charge]`. It inhibits charging at the present level; it is not a percentage charge limit. The unselected word `auto` is the kernel's name for normal charging, not an automatic capacity policy in HHD.
+Charge Bypass is a separate binary control with `disabled` and `always` states. HHD maps these to the kernel driver's `auto` and `inhibit-charge` states. This is a manual direct-bypass switch, not a percentage charge limit.
 
-**Bypass at 100% is supported.** The current device reports `capacity=100`, `status=Full`, HHD `always`, and kernel `inhibit-charge`, so charging is already inhibited. It will not automatically top up after falling to 99% while `always` remains selected; switch to `disabled` to charge again. This avoids repeated top-ups but does not lower the battery from its high-voltage 100% state.
+**Normal mode already terminates charging at full capacity.** With HHD `disabled` and kernel `[auto]`, the tested device remained at `capacity=100`, `status=Full`, and `energy_now=energy_full` while `power_now` reported about 0.161 W throughout a 35-second observation. The EC/battery-management system handles normal full-charge termination, so no polling service is needed to prevent charging beyond 100%.
 
-The installer automates that transition with hysteresis. It checks every 30 seconds, engages `always` at **100%**, keeps the current state from **96–99%**, and selects `disabled` at **95% or below**. A full battery therefore remains on bypass until it falls to 95% instead of repeatedly topping up between 99% and 100%. HHD is invoked only for an actual state change.
+The `ayaneo_platform` driver does not automatically engage direct bypass at a percentage. Its `auto` branch writes the EC value that closes bypass; `inhibit-charge` writes the value that opens bypass. Use `always` only when direct bypass is deliberately wanted at the current charge level.
 
-The automatic policy owns the bypass setting, so it cannot also hold an arbitrary level such as 80%. To hold near 80% manually, first disable `ayaneo-charge-at-full.timer`, unplug and discharge to 80%, select `always`, then reconnect. The bypass inhibits charging at the current level; it does not actively drain a connected battery from 100% to 80%.
+To hold about 80%, unplug and discharge to 80%, then reconnect with Charge Bypass left on `always`. This inhibits charging at the current level; it does not actively drain a connected battery from 100% to 80%. The installer preserves this choice rather than enabling bypass automatically at an arbitrary battery level.
 
 ---
 
@@ -203,11 +203,7 @@ cat /sys/class/leds/ayaneo:rgb:joystick_rings/suspend_mode
 HHDCTL="$HOME/.local/share/hhd/venv/bin/hhdctl"
 "$HHDCTL" get tdp.qam.tdp tdp.qam.boost tdp.battery.charge_bypass
 cat /sys/class/power_supply/BAT0/charge_behaviour
-# Tested device: 12, false, always; kernel: auto [inhibit-charge]
-
-systemctl is-enabled ayaneo-charge-at-full.timer
-systemctl status ayaneo-charge-at-full.timer --no-pager
-# After installation: enabled / active (waiting)
+# Tested device: 12, false, disabled; kernel: [auto] inhibit-charge
 ```
 
 ---
