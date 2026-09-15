@@ -26,7 +26,8 @@ Tested on the author's physical AYANEO Slide on 2026-09-15, with follow-up inspe
 | Script static checks | Pass | `bash -n` and `git diff --check`; the Limine fixture produced one `default_ps_max_latency_us=15000` argument, and the rollback fixture removed tracked options while preserving an unrelated later option |
 | Service conflict isolation | Pass after fix | Both system and user SteamOS Manager units are masked while HHD is active; no failed user units remain |
 | HHD boost state | Pass after fix | At 8 W, boost on produced 10 W Fast/Slow and 8 W Skin/STAPM; boost off made all four 8 W. The current 12 W boost-off profile reports all four at 12 W |
-| Charge bypass capability | Pass, binary only | HHD reported `always` and Linux reported `auto [inhibit-charge]`; no start/end percentage-threshold files exist |
+| Percentage charge limit | **Unsupported** | HHD found no `Battery Limit` path, and no kernel start/end threshold files exist |
+| Binary charge bypass backend | Pass at 100% | At `capacity=100` and `status=Full`, HHD reported `always` and Linux reported `auto [inhibit-charge]`; this inhibits charging at the present level and does not accept a percentage |
 | DCN `REG_WAIT` warning | **Not resolved** | `amdgpu.sg_display=0` and `amdgpu.dcdebugmask=0x10` were active, but one `dcn31_program_compbuf_size` timeout still appeared during boot; no GPU reset followed |
 
 ## Thermal limit observed under load
@@ -49,7 +50,7 @@ The display options have not passed dock A/B testing. The current boot log dispr
 
 The current profile is 12 W with QAM TDP boost disabled, GPU frequency management on auto, and Fast/Slow/Skin/STAPM limits all at 12 W. The earlier 8 W boost-on profile raised only the bounded Fast/Slow limits to 10 W, so boost did not remove the power ceiling.
 
-HHD exposes Charge Bypass as `disabled` or `always`; it does not offer a percentage. With `always` selected at 100%, `/sys/class/power_supply/BAT0/charge_behaviour` showed `auto [inhibit-charge]`. No `charge_control_start_threshold` or `charge_control_end_threshold` exists. Holding about 80% therefore requires discharging to that level before reconnecting with bypass enabled. Persistence across a later reboot and the actual battery current at 80% still need measurement.
+There is no charge-limit option: HHD found no `Battery Limit` path, and no `charge_control_start_threshold` or `charge_control_end_threshold` exists. A separate binary Charge Bypass backend accepts `disabled` or `always`. With `always` selected at 100%, `/sys/class/power_supply/BAT0/charge_behaviour` showed `auto [inhibit-charge]`. Holding about 80% therefore requires discharging to that level before reconnecting with bypass enabled. Persistence across a later reboot and the actual battery current at 80% still need measurement.
 
 ## Other observed warnings
 

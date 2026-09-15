@@ -157,9 +157,13 @@ This device currently runs at **12 W with boost off**. Raise it to 15 W only aft
 
 For demanding games, start with a **30 FPS cap** and use 40 FPS only when the game holds it consistently. A stable cap prevents the APU from spending extra power rendering frames that immediately miss the display target.
 
-## 🔌 Charge Bypass and Battery Level
+## 🔌 No Charge Limit — Bypass Only
 
-HHD exposes only `disabled` and `always` for Charge Bypass. The current `always` setting appears in Linux as `auto [inhibit-charge]`. There is no `charge_control_end_threshold` interface, so neither HHD nor Linux can set an automatic 80% ceiling on this firmware.
+This device has **no charge-limit option**. HHD found no `Battery Limit` path, and the firmware exposes no `charge_control_end_threshold`, so an 80% ceiling cannot be configured.
+
+Charge Bypass is a separate binary control with `disabled` and `always` states. The current `always` state appears in Linux as `auto [inhibit-charge]`. It inhibits charging at the present level; it is not a percentage charge limit.
+
+**Bypass at 100% is supported.** The current device reports `capacity=100`, `status=Full`, HHD `always`, and kernel `inhibit-charge`, so charging is already inhibited. It will not automatically top up after falling to 99% while `always` remains selected; switch to `disabled` to charge again. This avoids repeated top-ups but does not lower the battery from its high-voltage 100% state.
 
 To hold about 80%, unplug and discharge to 80%, then reconnect with Charge Bypass left on `always`. This inhibits charging at the current level; it does not actively drain a connected battery from 100% to 80%. The installer preserves this choice rather than enabling bypass automatically at an arbitrary battery level.
 
@@ -206,7 +210,7 @@ cat /sys/class/power_supply/BAT0/charge_behaviour
 
 * [docs/HARDWARE_ANALYSIS.md](docs/HARDWARE_ANALYSIS.md) — Measured NVMe power states, HMB, temperatures, reset-log evidence, and controller stack analysis.
 * [docs/TEST_RESULTS.md](docs/TEST_RESULTS.md) — Reboot, APST, HMB, suspend/resume, direct-read stress results, and known limits.
-* [docs/POWER_AND_CHARGING.md](docs/POWER_AND_CHARGING.md) — TDP profiles, boost behavior, and the Slide's binary charge-bypass control.
+* [docs/POWER_AND_CHARGING.md](docs/POWER_AND_CHARGING.md) — TDP profiles, boost behavior, the missing percentage charge limit, and the binary bypass control.
 * [docs/BIOS_RECOMMENDATIONS.md](docs/BIOS_RECOMMENDATIONS.md) — Step-by-step BIOS tuning guide.
 * [README.ko.md](README.ko.md) — 한국어 가이드 및 상세 설명서.
 

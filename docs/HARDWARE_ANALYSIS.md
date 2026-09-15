@@ -70,9 +70,11 @@ The installed mitigations remain conservative:
 
 These settings reduce variables and power transients. They do not turn the reset record into proof of one hardware failure mode.
 
-## Battery charge control
+## No battery charge limit; bypass backend only
 
-HHD reports `tdp.battery.charge_bypass=always`, and the battery power-supply interface reports `auto [inhibit-charge]`. Only `disabled` and `always` are available in HHD. The kernel exposes neither `charge_control_start_threshold` nor `charge_control_end_threshold`, so there is no programmable 80% ceiling.
+HHD's probe found `/sys/class/power_supply/BAT0/charge_behaviour` for `Battery Bypass` but printed no path for `Battery Limit`. The kernel exposes neither `charge_control_start_threshold` nor `charge_control_end_threshold`, so the device has no programmable 80% charge-limit option.
+
+The separate bypass backend reports `tdp.battery.charge_bypass=always`, and the battery power-supply interface reports `auto [inhibit-charge]`. Its only backend states are `disabled` and `always`; these are not percentage choices.
 
 The available control inhibits charging at the present state of charge. It does not command a connected battery to discharge from 100% to 80%. Linux can confirm the inhibit state but does not expose internal rail telemetry that would independently prove hardware-level direct bypass. The installer therefore preserves this user setting instead of changing it automatically. See [POWER_AND_CHARGING.md](POWER_AND_CHARGING.md).
 

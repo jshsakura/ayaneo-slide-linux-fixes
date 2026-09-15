@@ -35,9 +35,11 @@ sudo "$HHDCTL" set tdp.qam.tdp=12 tdp.qam.boost=false
 
 After the demanding-game test passes, replace `12` with `15` to test the general efficiency target. Keep boost off for that first comparison.
 
-## Charge bypass and the missing 80% option
+## No percentage charge limit; binary bypass only
 
-The Slide exposes these HHD choices:
+The Slide does **not** expose a charge-limit control. HHD's hardware probe printed a valid path after `Battery Bypass` and no path after `Battery Limit`. Linux likewise exposes no `charge_control_start_threshold` or `charge_control_end_threshold`. There is no hidden 80% slider or selectable percentage.
+
+A separate, binary charge-inhibit backend exists. Its HHD states are:
 
 ```text
 tdp.battery.charge_bypass: disabled | always
@@ -50,7 +52,9 @@ The live setting is `always`. Linux confirms that HHD maps this to:
 auto [inhibit-charge]
 ```
 
-The brackets mark `inhibit-charge` as active. The firmware/driver does **not** expose `charge_control_start_threshold` or `charge_control_end_threshold`, so Linux and HHD cannot request an automatic 80% ceiling. The OS can verify that charging is inhibited; it cannot independently measure the internal power rail to prove a hardware-level direct bypass.
+The brackets mark `inhibit-charge` as active. This is not a charge-limit option: it stops charging at the present battery level and has no percentage target. The OS can verify that charging is inhibited; it cannot independently measure the internal power rail to prove a hardware-level direct bypass.
+
+At 100%, the binary bypass is still useful. The tested device currently reports `capacity=100`, `status=Full`, HHD `always`, and kernel `inhibit-charge`. Charging remains inhibited if capacity later reads 99%; select `disabled` when normal charging is wanted again. This can prevent repeated top-up cycles, but it does not reduce the cell voltage or provide the storage benefit of an actual 80% limit.
 
 To hold the battery near 80%:
 
@@ -59,7 +63,7 @@ To hold the battery near 80%:
 3. Reconnect external power while Charge Bypass remains on `always`.
 4. Recheck the capacity and charge behavior after reconnecting or rebooting.
 
-HHD commands for the two available modes are:
+The backend can be inspected or changed with commands even when no percentage-limit control exists:
 
 ```bash
 HHDCTL="$HOME/.local/share/hhd/venv/bin/hhdctl"

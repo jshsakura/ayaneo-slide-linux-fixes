@@ -171,9 +171,13 @@ Boost를 켜도 전력이 끝없이 올라가지는 않습니다. 실측한 8W �
 
 고부하 게임은 **30 FPS 제한**부터 시작하고 안정적으로 유지되는 게임만 40 FPS로 올립니다. 일정한 제한은 표시 목표를 계속 놓치는 프레임을 만들기 위해 APU가 전력을 낭비하는 것을 줄입니다.
 
-## 🔌 충전 바이패스와 배터리 잔량
+## 🔌 충전 제한 미지원 — 바이패스만 가능
 
-HHD가 제공하는 Charge Bypass 값은 `disabled`와 `always`뿐입니다. 현재 `always` 설정은 Linux에서 `auto [inhibit-charge]`로 확인됩니다. 펌웨어가 `charge_control_end_threshold`를 제공하지 않아 HHD나 Linux에서 자동 80% 상한을 지정할 수 없습니다.
+이 기체에는 **충전 제한 옵션이 없습니다.** HHD 로그도 `Battery Limit` 경로를 찾지 못했고, 펌웨어가 `charge_control_end_threshold`를 제공하지 않으므로 80% 같은 상한값을 지정할 수 없습니다.
+
+이와 별개로 Charge Bypass만 `disabled`와 `always` 두 상태로 동작합니다. 현재 `always` 상태는 Linux에서 `auto [inhibit-charge]`로 확인됩니다. 이것은 현재 잔량에서 충전을 막는 스위치이지 퍼센트를 지정하는 충전 제한 기능이 아닙니다.
+
+**100%에서 바이패스하는 것은 가능합니다.** 현재 기체도 `capacity=100`, `status=Full`, HHD `always`, 커널 `inhibit-charge`로 이미 충전 억제 중입니다. 이후 99%로 떨어져도 `always`인 동안에는 자동 보충 충전을 하지 않으며, 다시 충전하려면 `disabled`로 바꿔야 합니다. 보충 충전은 막지만 배터리를 100% 고전압 상태에서 내려주지는 않습니다.
 
 80% 근처를 유지하려면 전원을 뽑아 80%까지 사용한 다음 Charge Bypass를 `always`로 둔 채 다시 연결합니다. 현재 잔량에서 충전을 막는 방식이며, 연결된 상태에서 100% 배터리를 80%까지 능동 방전시키지는 않습니다. 설치기는 임의 잔량에서 바이패스를 켜지 않고 사용자가 고른 상태를 보존합니다.
 
@@ -220,7 +224,7 @@ cat /sys/class/power_supply/BAT0/charge_behaviour
 
 * [docs/HARDWARE_ANALYSIS.md](docs/HARDWARE_ANALYSIS.md) — 실측 NVMe 전력 상태, HMB, 온도, 재부팅 로그와 컨트롤러 스택 분석
 * [docs/TEST_RESULTS.md](docs/TEST_RESULTS.md) — 재부팅, APST, HMB, 슬립 복귀, 직접 읽기 부하 시험 및 알려진 한계
-* [docs/POWER_AND_CHARGING.md](docs/POWER_AND_CHARGING.md) — TDP 프로필, boost 동작과 슬라이드의 2단계 충전 바이패스
+* [docs/POWER_AND_CHARGING.md](docs/POWER_AND_CHARGING.md) — TDP 프로필, boost 동작, 충전 제한 미지원과 2상태 바이패스
 * [docs/BIOS_RECOMMENDATIONS.md](docs/BIOS_RECOMMENDATIONS.md) — 바이오스 최적화 단계별 가이드
 * [README.md](README.md) — Global English Documentation
 

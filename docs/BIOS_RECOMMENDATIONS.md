@@ -31,6 +31,6 @@ This guide details the recommended BIOS settings for the **AYANEO Slide** (and *
 * Treat AC and battery as separate tests. A charger does not by itself validate 22–28 W operation.
 * The installer intentionally leaves the user's HHD TDP unchanged.
 
-## 🔌 Charge Bypass
+## 🔌 Charge Limit Is Unsupported; Bypass Only
 
-HHD exposes only `disabled` and `always` on the tested Slide. There is no firmware-backed 80% threshold. With `always` selected, Linux reports `inhibit-charge`; discharge to the desired level before reconnecting external power. See [POWER_AND_CHARGING.md](POWER_AND_CHARGING.md) for commands and limitations.
+The tested Slide has no charge-limit option or firmware-backed 80% threshold. A separate Charge Bypass switch has only `disabled` and `always`; with `always` selected, Linux reports `inhibit-charge`. Discharge to the desired level before reconnecting external power. See [POWER_AND_CHARGING.md](POWER_AND_CHARGING.md) for commands and limitations.
